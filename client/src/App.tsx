@@ -10,6 +10,7 @@ import Library from "./pages/Library";
 import NoteDetail from "./pages/NoteDetail";
 import Graph from "./pages/Graph";
 import Settings from "./pages/Settings";
+import Calibrate from "./pages/Calibrate";
 import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
 import { PWAUpdatePrompt } from "./components/PWAUpdatePrompt";
 
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/note/:id" component={NoteDetail} />
       <Route path="/graph" component={Graph} />
       <Route path="/settings" component={Settings} />
+      <Route path="/calibrate/:id" component={Calibrate} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

@@ -18,6 +18,7 @@ interface NoteForSync {
   aiAnswer: string | null;
   researchSuggestions: string[] | null;
   createdAt: Date;
+  topicFolder?: string; // optional topic folder for GitHub path
 }
 
 /**
@@ -78,9 +79,14 @@ export function getNoteFilePath(note: NoteForSync): string {
   const categoryLabel = CATEGORY_LABELS[note.category] || "其他";
   const date = note.createdAt.toISOString().split("T")[0];
   const safeTitle = (note.title || `note-${note.id}`)
-    .replace(/[/\\:*?"<>|]/g, "-")
+    .replace(/[\/\\:*?"<>|]/g, "-")
     .replace(/\s+/g, "-")
     .slice(0, 50);
+  // If note belongs to a topic, nest under topic folder
+  if (note.topicFolder) {
+    const safeFolder = note.topicFolder.replace(/[\/\\:*?"<>|]/g, "-");
+    return `主题/${safeFolder}/${date}-${safeTitle}.md`;
+  }
   return `${categoryLabel}/${date}-${safeTitle}.md`;
 }
 

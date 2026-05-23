@@ -11,8 +11,8 @@ type AnalysisStep = "idle" | "uploading" | "analyzing" | "done" | "error";
 const STEP_LABELS: Record<AnalysisStep, string> = {
   idle: "",
   uploading: "上传图片中...",
-  analyzing: "AI 正在分析...",
-  done: "分析完成！",
+  analyzing: "AI 正在深度分析...",
+  done: "分析完成！正在跳转校准界面...",
   error: "分析失败",
 };
 
@@ -31,9 +31,9 @@ export default function Upload() {
   const uploadMutation = trpc.notes.uploadAndAnalyze.useMutation({
     onSuccess: (data) => {
       setStep("done");
-      toast.success("记录成功！AI 分析已完成");
+      toast.success("分析完成！请校准内容后再存档");
       setTimeout(() => {
-        navigate(`/note/${data.note.id}`);
+        navigate(`/calibrate/${data.note.id}`);
       }, 800);
     },
     onError: (err) => {
@@ -222,7 +222,7 @@ export default function Upload() {
               <div>
                 <p className="font-medium text-primary text-sm">{STEP_LABELS[step]}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {step === "uploading" ? "正在安全上传你的图片..." : "AI 正在识别文字、分析内容、生成回答..."}
+                  {step === "uploading" ? "正在安全上传你的图片..." : "gpt-4o 看图识字 → o3 深度分析，预计 45-90 秒..."}
                 </p>
               </div>
             </div>
@@ -245,7 +245,7 @@ export default function Upload() {
               : "bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 active:scale-[0.98]"
           }`}
         >
-          {step === "done" ? "✅ 分析完成，跳转中..." : isLoading ? "分析中..." : "🤖 AI 分析记录"}
+          {step === "done" ? "✅ 分析完成，跳转中..." : isLoading ? "分析中..." : "          🤖 AI 分析记录（多模型流水线）"}
         </button>
 
         {/* Tips */}

@@ -52,9 +52,14 @@ export const notes = mysqlTable("notes", {
   aiAnswer: text("aiAnswer"),                 // AI answer (for question type)
   researchSuggestions: json("researchSuggestions").$type<string[]>().default([]), // AI research suggestions
   // Status
-  status: mysqlEnum("status", ["processing", "done", "error"]).default("processing").notNull(),
+  status: mysqlEnum("status", ["processing", "draft", "done", "error"]).default("processing").notNull(),
   githubSynced: int("githubSynced").default(0).notNull(), // 0=not synced, 1=synced
   githubPath: text("githubPath"),             // path in GitHub repo
+  // New fields for calibration workflow
+  topicId: int("topicId"),                    // linked knowledge topic
+  noteItemsJson: text("noteItemsJson"),        // structured note items JSON
+  coreTheme: varchar("coreTheme", { length: 500 }), // AI-extracted core theme
+  connectionInsight: text("connectionInsight"), // AI-extracted connections
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -94,3 +99,20 @@ export const githubConfigs = mysqlTable("github_configs", {
 
 export type GithubConfig = typeof githubConfigs.$inferSelect;
 export type InsertGithubConfig = typeof githubConfigs.$inferInsert;
+
+/**
+ * Knowledge topics table - groups related notes into themes
+ */
+export const topics = mysqlTable("topics", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  noteCount: int("noteCount").default(0).notNull(),
+  githubFolder: varchar("githubFolder", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Topic = typeof topics.$inferSelect;
+export type InsertTopic = typeof topics.$inferInsert;
