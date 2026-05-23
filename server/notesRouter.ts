@@ -56,6 +56,18 @@ export const notesRouter = router({
           throw new Error("Either image or text content is required");
         }
 
+        // Store noteItems, coreTheme, connectionInsight as JSON in aiAnswer field
+        // Format: if aiAnswer exists, store as JSON object with both fields
+        const noteItemsJson = JSON.stringify({
+          noteItems: analysisResult.noteItems || [],
+          coreTheme: analysisResult.coreTheme || "",
+          connectionInsight: analysisResult.connectionInsight || "",
+        });
+        // Combine aiAnswer text + noteItemsJson in a structured way
+        const combinedAiAnswer = analysisResult.aiAnswer
+          ? `${analysisResult.aiAnswer}\n\n__ITEMS__${noteItemsJson}`
+          : `__ITEMS__${noteItemsJson}`;
+
         // Update note with analysis results
         await db.update(notes).set({
           rawText: analysisResult.rawText || input.textContent || null,
@@ -63,7 +75,7 @@ export const notesRouter = router({
           title: analysisResult.title,
           summary: analysisResult.summary,
           tags: analysisResult.tags,
-          aiAnswer: analysisResult.aiAnswer,
+          aiAnswer: combinedAiAnswer,
           researchSuggestions: analysisResult.researchSuggestions,
           status: "done",
         }).where(eq(notes.id, noteId));

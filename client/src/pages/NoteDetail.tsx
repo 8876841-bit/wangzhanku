@@ -6,11 +6,38 @@ import { getCategoryBadgeClass, getCategoryLabel, getCategoryIcon, formatDate } 
 import { toast } from "sonner";
 import { useState } from "react";
 
+interface NoteItem {
+  keyword: string;
+  type: "question" | "concept" | "person" | "todo" | "insight" | "data";
+  deepAnswer: string;
+  actionable: string[];
+  furtherQuestions: string[];
+}
+
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  question: "❓ 问题",
+  concept: "💡 概念",
+  person: "👤 人物",
+  todo: "✅ 待办",
+  insight: "✨ 洞察",
+  data: "📊 数据",
+};
+
+const ITEM_TYPE_COLORS: Record<string, string> = {
+  question: "bg-blue-50 border-blue-100 text-blue-700",
+  concept: "bg-amber-50 border-amber-100 text-amber-700",
+  person: "bg-green-50 border-green-100 text-green-700",
+  todo: "bg-orange-50 border-orange-100 text-orange-700",
+  insight: "bg-purple-50 border-purple-100 text-purple-700",
+  data: "bg-gray-50 border-gray-200 text-gray-700",
+};
+
 export default function NoteDetail() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
   const [, navigate] = useLocation();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set([0]));
 
   const noteId = parseInt(id || "0");
   const utils = trpc.useUtils();
@@ -40,6 +67,15 @@ export default function NoteDetail() {
     onError: (err) => toast.error(`删除失败: ${err.message}`),
   });
 
+  const toggleItem = (index: number) => {
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -47,6 +83,7 @@ export default function NoteDetail() {
           <div className="h-6 bg-muted rounded w-1/3" />
           <div className="h-32 bg-muted rounded-2xl" />
           <div className="h-24 bg-muted rounded-2xl" />
+          <div className="h-48 bg-muted rounded-2xl" />
         </div>
       </AppLayout>
     );
@@ -68,6 +105,30 @@ export default function NoteDetail() {
   const { note, relatedNotes } = data;
   const tags = (note.tags as string[]) || [];
   const suggestions = (note.researchSuggestions as string[]) || [];
+  // Try to parse noteItems from the note (stored as part of aiAnswer or a separate field)
+  let noteItems: NoteItem[] = [];
+  let coreTheme = "";
+  let connectionInsight = "";
+  let displayAiAnswer: string | null = null;
+  try {
+    const rawAiAnswer = note.aiAnswer || "";
+    const itemsMarker = "__ITEMS__";
+    const markerIdx = rawAiAnswer.indexOf(itemsMarker);
+    if (markerIdx !== -1) {
+      // Has structured data
+      const textPart = rawAiAnswer.slice(0, markerIdx).trim();
+      const jsonPart = rawAiAnswer.slice(markerIdx + itemsMarker.length);
+      displayAiAnswer = textPart || null;
+      const parsed = JSON.parse(jsonPart);
+      noteItems = parsed.noteItems || [];
+      coreTheme = parsed.coreTheme || "";
+      connectionInsight = parsed.connectionInsight || "";
+    } else {
+      displayAiAnswer = rawAiAnswer || null;
+    }
+  } catch {
+    displayAiAnswer = note.aiAnswer;
+  }
 
   return (
     <AppLayout>
@@ -135,7 +196,7 @@ export default function NoteDetail() {
           {/* Original Image */}
           {note.imageUrl && (
             <div className="border-b border-border">
-              <img src={note.imageUrl} alt="原始笔记" className="w-full max-h-64 object-contain bg-gray-50" />
+              <img src={note.imageUrl} alt="原始笔记" className="w-full max-h-72 object-contain bg-gray-50" />
             </div>
           )}
 
@@ -149,20 +210,115 @@ export default function NoteDetail() {
 
           {/* AI Summary */}
           {note.summary && (
-            <div className="p-5 border-b border-border bg-blue-50/30">
+            <div className="p-5 bg-blue-50/30">
               <h3 className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">🤖 AI 摘要</h3>
               <p className="text-sm text-foreground leading-relaxed">{note.summary}</p>
             </div>
           )}
         </div>
 
-        {/* AI Answer (for questions) */}
-        {note.aiAnswer && (
+        {/* Core Theme + Connection Insight */}
+        {(coreTheme || connectionInsight) && (
+          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl border border-purple-100 p-5 space-y-3">
+            {coreTheme && (
+              <div>
+                <h3 className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1.5">🎯 核心命题</h3>
+                <p className="text-sm font-medium text-foreground leading-relaxed">{coreTheme}</p>
+              </div>
+            )}
+            {connectionInsight && (
+              <div>
+                <h3 className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-1.5">🔮 内在联系</h3>
+                <p className="text-sm text-foreground leading-relaxed">{connectionInsight}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Deep Analysis: Note Items */}
+        {noteItems.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <span>🧠</span> 逐条深度分析
+              <span className="text-xs text-muted-foreground font-normal">({noteItems.length} 条)</span>
+            </h3>
+            {noteItems.map((item, i) => {
+              const isExpanded = expandedItems.has(i);
+              const typeColor = ITEM_TYPE_COLORS[item.type] || ITEM_TYPE_COLORS.concept;
+              const typeLabel = ITEM_TYPE_LABELS[item.type] || item.type;
+              return (
+                <div key={i} className="bg-white rounded-xl border border-border overflow-hidden">
+                  {/* Item Header - always visible */}
+                  <button
+                    onClick={() => toggleItem(i)}
+                    className="w-full p-4 flex items-start gap-3 text-left hover:bg-muted/30 transition-colors"
+                  >
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0 mt-0.5 ${typeColor}`}>
+                      {typeLabel}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground leading-snug">{item.keyword}</p>
+                      {!isExpanded && item.deepAnswer && (
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{item.deepAnswer}</p>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground text-xs flex-shrink-0 mt-0.5">
+                      {isExpanded ? "▲" : "▼"}
+                    </span>
+                  </button>
+
+                  {/* Expanded Content */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 space-y-3 border-t border-border/50">
+                      {/* Deep Answer */}
+                      <div className="pt-3">
+                        <p className="text-sm text-foreground leading-relaxed">{item.deepAnswer}</p>
+                      </div>
+
+                      {/* Actionable */}
+                      {item.actionable && item.actionable.length > 0 && (
+                        <div className="bg-green-50 rounded-xl p-3">
+                          <p className="text-xs font-semibold text-green-700 mb-2">⚡ 可落地行动</p>
+                          <ul className="space-y-1.5">
+                            {item.actionable.map((a, j) => (
+                              <li key={j} className="flex items-start gap-2 text-xs text-green-800">
+                                <span className="flex-shrink-0 mt-0.5">→</span>
+                                <span>{a}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Further Questions */}
+                      {item.furtherQuestions && item.furtherQuestions.length > 0 && (
+                        <div className="bg-amber-50 rounded-xl p-3">
+                          <p className="text-xs font-semibold text-amber-700 mb-2">🔍 延伸追问</p>
+                          <ul className="space-y-1.5">
+                            {item.furtherQuestions.map((q, j) => (
+                              <li key={j} className="flex items-start gap-2 text-xs text-amber-800">
+                                <span className="flex-shrink-0 mt-0.5">?</span>
+                                <span>{q}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* AI Answer (综合回答) */}
+        {displayAiAnswer && (
           <div className="bg-gradient-to-br from-primary/5 to-primary/10 rounded-2xl border border-primary/20 p-5">
             <h3 className="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
-              <span>🤖</span> AI 回答
+              <span>🤖</span> AI 综合回答
             </h3>
-            <p className="text-sm text-foreground leading-relaxed">{note.aiAnswer}</p>
+            <p className="text-sm text-foreground leading-relaxed">{displayAiAnswer}</p>
           </div>
         )}
 
