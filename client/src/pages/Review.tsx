@@ -272,60 +272,75 @@ export default function Review() {
           )}
         </div>
 
-        {/* Voice/text correction */}
-        <div className="bg-white rounded-2xl border border-border p-4">
-          <p className="text-sm font-semibold text-foreground mb-1">✏️ 一句话校正</p>
-          <p className="text-xs text-muted-foreground mb-3">分类不对？标题不准？直接说出来，AI 立刻修改</p>
+        {/* Bottom padding so content isn't hidden behind fixed bar */}
+        <div className="h-36" />
+      </div>
 
-          <div className="flex items-center gap-3 mb-3">
+      {/* ── Fixed bottom bar: correction input + confirm ── */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border shadow-lg"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 4rem)" }}
+      >
+        <div className="max-w-2xl mx-auto px-4 pt-3 pb-2 space-y-2">
+          {/* Status indicator */}
+          {isWorking && (
+            <div className="flex items-center gap-2 px-1">
+              <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <p className="text-xs text-primary font-medium">
+                {isRecording ? "🔴 录音中，松开停止..." : isProcessing ? "语音识别中..." : "AI 更新中，请稍候..."}
+              </p>
+            </div>
+          )}
+
+          {/* Correction row */}
+          <div className="flex items-center gap-2">
+            {/* Mic button */}
             <button
               onPointerDown={startRecording}
               onPointerUp={stopRecording}
               onPointerLeave={stopRecording}
               disabled={isProcessing || isApplying}
-              className={`w-14 h-14 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all select-none flex-shrink-0 ${
-                isRecording ? "bg-red-500 text-white scale-110 shadow-lg" :
+              className={`w-11 h-11 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all select-none flex-shrink-0 ${
+                isRecording ? "bg-red-500 text-white scale-110 shadow-md" :
                 isProcessing || isApplying ? "bg-muted text-muted-foreground cursor-not-allowed" :
-                "bg-primary text-white hover:bg-primary/90 shadow-md active:scale-95"
+                "bg-primary/10 text-primary hover:bg-primary/20 active:scale-95"
               }`}
             >
-              {isRecording ? <span className="text-xl">⏹</span> :
-               isProcessing ? <div className="w-5 h-5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" /> :
-               isApplying ? <div className="w-5 h-5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" /> :
-               <span className="text-xl">🎙️</span>}
-              <span className="text-[9px]">{isRecording ? "松开" : isProcessing ? "识别" : isApplying ? "更新" : "按住"}</span>
+              {isRecording ? <span className="text-base">⏹</span> :
+               isProcessing || isApplying ? <div className="w-4 h-4 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" /> :
+               <span className="text-base">🎤</span>}
             </button>
-            <div className="flex-1">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={textInstruction}
-                  onChange={(e) => setTextInstruction(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleTextSend()}
-                  placeholder="或打字输入修改意见..."
-                  disabled={isWorking}
-                  className="flex-1 px-3 py-2 bg-muted/50 border border-border rounded-xl text-sm outline-none focus:border-primary/50 transition-all disabled:opacity-50"
-                />
-                <button onClick={handleTextSend} disabled={!textInstruction.trim() || isWorking}
-                  className="px-3 py-2 bg-primary text-white rounded-xl text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
-                  发送
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Confirm button */}
-        <button
-          onClick={handleConfirm}
-          disabled={confirmMutation.isPending || isWorking}
-          className="w-full py-4 rounded-2xl bg-primary text-white font-semibold text-base hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 active:scale-[0.98] disabled:opacity-50"
-        >
-          {confirmMutation.isPending ? "入库中..." : "✅ 确认入库 → 推送 GitHub"}
-        </button>
-        <p className="text-xs text-muted-foreground text-center -mt-2">
-          确认后自动推送到 GitHub{clusterName ? `，归入「${clusterName}」知识簇` : ""}
-        </p>
+            {/* Text input */}
+            <input
+              type="text"
+              value={textInstruction}
+              onChange={(e) => setTextInstruction(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleTextSend()}
+              placeholder="说出或打字修改意见..."
+              disabled={isWorking}
+              className="flex-1 px-3 py-2.5 bg-muted/60 border border-border rounded-xl text-sm outline-none focus:border-primary/50 focus:bg-white transition-all disabled:opacity-50"
+            />
+
+            {/* Send button */}
+            <button
+              onClick={handleTextSend}
+              disabled={!textInstruction.trim() || isWorking}
+              className="px-3 py-2.5 bg-muted text-foreground rounded-xl text-xs font-medium disabled:opacity-40 hover:bg-muted/70 transition-colors flex-shrink-0"
+            >
+              发送
+            </button>
+          </div>
+
+          {/* Confirm button */}
+          <button
+            onClick={handleConfirm}
+            disabled={confirmMutation.isPending || isWorking}
+            className="w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-all shadow-md shadow-primary/20 active:scale-[0.98] disabled:opacity-50"
+          >
+            {confirmMutation.isPending ? "入库中..." : `✅ 确认入库${clusterName ? ` · ${clusterName}` : ""} → GitHub`}
+          </button>
+        </div>
       </div>
     </AppLayout>
   );
