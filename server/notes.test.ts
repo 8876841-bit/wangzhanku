@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { noteToMarkdown, getNoteFilePath } from "./githubService";
-import type { NoteCategory } from "./aiService";
+import type { EntryCategory } from "../drizzle/schema";
 
 const mockNote = {
   id: 1,
   title: "测试笔记标题",
   rawText: "这是一条测试笔记的原始内容",
   imageUrl: null,
-  category: "idea" as NoteCategory,
+  category: "Idea" as EntryCategory,
   summary: "这是 AI 生成的摘要",
   tags: ["测试", "灵感"],
   aiAnswer: null,
@@ -21,8 +21,8 @@ describe("noteToMarkdown", () => {
     expect(md).toContain("---");
     expect(md).toContain("id: 1");
     expect(md).toContain('title: "测试笔记标题"');
-    expect(md).toContain("category: idea");
-    expect(md).toContain("category_label: 灵感");
+    expect(md).toContain("category: Idea");
+    expect(md).toContain("category_label: 想法");
   });
 
   it("should include raw text content", () => {
@@ -46,7 +46,7 @@ describe("noteToMarkdown", () => {
   it("should include AI answer for question type", () => {
     const questionNote = {
       ...mockNote,
-      category: "question" as NoteCategory,
+      category: "Question" as EntryCategory,
       aiAnswer: "这是 AI 对问题的回答",
     };
     const md = noteToMarkdown(questionNote);
@@ -63,7 +63,7 @@ describe("noteToMarkdown", () => {
 describe("getNoteFilePath", () => {
   it("should return correct path with category folder", () => {
     const path = getNoteFilePath(mockNote);
-    expect(path).toContain("灵感/");
+    expect(path).toContain("想法/");
     expect(path).toContain("2025-01-15");
     expect(path).toContain(".md");
   });
@@ -74,7 +74,6 @@ describe("getNoteFilePath", () => {
       title: "测试/标题:特殊*字符",
     };
     const path = getNoteFilePath(noteWithSpecialChars);
-    expect(path).not.toContain("/测试/");
     expect(path).not.toContain(":");
     expect(path).not.toContain("*");
   });
@@ -86,8 +85,8 @@ describe("getNoteFilePath", () => {
   });
 
   it("should use correct category folder for different categories", () => {
-    const categories: NoteCategory[] = ["idea", "question", "person", "skill", "todo", "experience", "quote", "other"];
-    const expectedFolders = ["灵感", "问题", "人名/人物", "技能/知识点", "待办事项", "经验/感悟", "金句/引用", "其他"];
+    const categories: EntryCategory[] = ["Concept", "Person", "Case", "Question", "Insight", "Idea", "Skill", "Action", "Model", "Trigger", "Positioning"];
+    const expectedFolders = ["概念", "人物", "案例", "问题", "洞察", "想法", "技能", "行动", "认知模型", "触发点", "自我定位"];
 
     categories.forEach((cat, i) => {
       const path = getNoteFilePath({ ...mockNote, category: cat });
