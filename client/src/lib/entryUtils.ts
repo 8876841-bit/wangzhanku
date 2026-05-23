@@ -4,7 +4,8 @@ export type EntryCategory =
 
 export type EntryStatus =
   | "processing" | "pending_review" | "confirmed" | "archived"
-  | "needs_deepdive" | "duplicate" | "upgradeable" | "model";
+  | "needs_deepdive" | "duplicate" | "upgradeable" | "model"
+  | "parked" | "discarded";
 
 export const CATEGORIES: EntryCategory[] = [
   "Concept", "Person", "Case", "Question", "Insight",
@@ -46,6 +47,8 @@ export const STATUS_LABELS: Record<EntryStatus, string> = {
   duplicate:      "重复",
   upgradeable:    "可升级",
   model:          "已建模",
+  parked:         "暂存",
+  discarded:      "放弃",
 };
 
 export const STATUS_COLORS: Record<EntryStatus, string> = {
@@ -57,6 +60,30 @@ export const STATUS_COLORS: Record<EntryStatus, string> = {
   duplicate:      "bg-orange-100 text-orange-700",
   upgradeable:    "bg-indigo-100 text-indigo-700",
   model:          "bg-teal-100 text-teal-700",
+  parked:         "bg-gray-100 text-gray-500",
+  discarded:      "bg-red-50 text-red-400",
+};
+
+export const NEXT_ACTION_LABELS: Record<string, string> = {
+  parked:         "暂存",
+  research:       "查资料",
+  find_case:      "找案例",
+  compare:        "做对比",
+  experiment:     "做实验",
+  create_content: "写成内容",
+  upgrade_model:  "升级模型",
+  deepdive:       "深入研究",
+};
+
+export const NEXT_ACTION_ICONS: Record<string, string> = {
+  parked:         "⏸️",
+  research:       "🔍",
+  find_case:      "📋",
+  compare:        "⚖️",
+  experiment:     "🧪",
+  create_content: "✍️",
+  upgrade_model:  "🧩",
+  deepdive:       "🔭",
 };
 
 export function formatRelativeTime(date: Date | string): string {

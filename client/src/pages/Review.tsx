@@ -2,7 +2,7 @@ import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AppLayout } from "@/components/AppLayout";
-import { CATEGORY_LABELS, CATEGORY_ICONS, CATEGORY_COLORS, STATUS_LABELS, STATUS_COLORS } from "@/lib/entryUtils";
+import { CATEGORY_LABELS, CATEGORY_ICONS, CATEGORY_COLORS, STATUS_LABELS, STATUS_COLORS, NEXT_ACTION_ICONS, NEXT_ACTION_LABELS } from "@/lib/entryUtils";
 import type { EntryCategory, EntryStatus } from "@/lib/entryUtils";
 import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
@@ -19,6 +19,7 @@ export default function Review() {
   const [isApplying, setIsApplying] = useState(false);
   const [textInstruction, setTextInstruction] = useState("");
   const [clusterName, setClusterName] = useState("");
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const recorderRef = useRef<ReturnType<typeof createAudioRecorder> | null>(null);
 
   const { data, isLoading, refetch } = trpc.entries.getById.useQuery(
@@ -50,6 +51,15 @@ export default function Review() {
       navigate("/");
     },
     onError: (err) => toast.error(`入库失败: ${err.message}`),
+  });
+
+  const setStatusMutation = trpc.entries.setStatus.useMutation({
+    onSuccess: (_, vars) => {
+      const label = vars.status === "parked" ? "已暂存" : "已放弃";
+      toast.success(label);
+      navigate("/");
+    },
+    onError: (err) => toast.error(`操作失败: ${err.message}`),
   });
 
   // Pre-fill cluster name from AI suggestion
@@ -123,6 +133,9 @@ export default function Review() {
   let suggestedClusterName = "";
   let needsDeepDive = false;
   let deepDiveReason = "";
+  let nextActionType = "";
+  let nextAction = "";
+  let aiInterpretation = "";
 
   try {
     const unpacked = JSON.parse(entry.noteItemsJson || "{}");
@@ -132,6 +145,9 @@ export default function Review() {
     suggestedClusterName = unpacked.suggestedClusterName || "";
     needsDeepDive = unpacked.needsDeepDive || false;
     deepDiveReason = unpacked.deepDiveReason || "";
+    nextActionType = unpacked.nextActionType || entry.nextActionType || "";
+    nextAction = unpacked.nextAction || entry.nextAction || "";
+    aiInterpretation = unpacked.aiInterpretation || entry.aiInterpretation || "";
   } catch {}
 
   const isWorking = isRecording || isProcessing || isApplying;
@@ -190,6 +206,15 @@ export default function Review() {
             <div className="p-4 border-b border-border">
               <p className="text-xs font-semibold text-muted-foreground mb-1.5">原始内容</p>
               <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{entry.rawText}</p>
+            </div>
+          )}
+
+          {/* AI interpretation (first pass) */}
+          {aiInterpretation && (
+            <div className="p-4 border-t border-border bg-amber-50/30">
+              <p className="text-xs font-semibold text-amber-600 mb-1.5">🤖 AI 初次理解</p>
+              <p className="text-sm text-foreground leading-relaxed">{aiInterpretation}</p>
+              <p className="text-xs text-amber-600 mt-1.5">如果理解有偏差，在底部输入框说出来</p>
             </div>
           )}
 
@@ -272,6 +297,18 @@ export default function Review() {
           )}
         </div>
 
+        {/* Next action */}
+        {nextAction && (
+          <div className="bg-white rounded-2xl border border-border p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-base">{NEXT_ACTION_ICONS[nextActionType] || "⚡"}</span>
+              <p className="text-sm font-semibold text-foreground">下一步动作</p>
+              <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{NEXT_ACTION_LABELS[nextActionType] || nextActionType}</span>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">{nextAction}</p>
+          </div>
+        )}
+
         {/* Bottom padding so content isn't hidden behind fixed bar */}
         <div className="h-36" />
       </div>
@@ -332,14 +369,32 @@ export default function Review() {
             </button>
           </div>
 
-          {/* Confirm button */}
-          <button
-            onClick={handleConfirm}
-            disabled={confirmMutation.isPending || isWorking}
-            className="w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-all shadow-md shadow-primary/20 active:scale-[0.98] disabled:opacity-50"
-          >
-            {confirmMutation.isPending ? "入库中..." : `✅ 确认入库${clusterName ? ` · ${clusterName}` : ""} → GitHub`}
-          </button>
+          {/* Action row: confirm + park + discard */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleConfirm}
+              disabled={confirmMutation.isPending || isWorking}
+              className="flex-1 py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-all shadow-md shadow-primary/20 active:scale-[0.98] disabled:opacity-50"
+            >
+              {confirmMutation.isPending ? "入库中..." : `✅ 入库${clusterName ? ` · ${clusterName}` : ""}`}
+            </button>
+            <button
+              onClick={() => setStatusMutation.mutate({ entryId, status: "parked" })}
+              disabled={setStatusMutation.isPending || isWorking}
+              className="px-3 py-3 rounded-xl bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 transition-colors disabled:opacity-50 flex-shrink-0"
+              title="暂存，以后再看"
+            >
+              ⏸️暂存
+            </button>
+            <button
+              onClick={() => setStatusMutation.mutate({ entryId, status: "discarded" })}
+              disabled={setStatusMutation.isPending || isWorking}
+              className="px-3 py-3 rounded-xl bg-red-50 text-red-400 text-xs font-medium hover:bg-red-100 transition-colors disabled:opacity-50 flex-shrink-0"
+              title="放弃，不入库"
+            >
+              🗑️放弃
+            </button>
+          </div>
         </div>
       </div>
     </AppLayout>

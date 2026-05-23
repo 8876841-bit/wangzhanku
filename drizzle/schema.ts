@@ -43,6 +43,8 @@ export const ENTRY_STATUSES = [
   "duplicate",       // 重复/待聚合
   "upgradeable",     // 可升级为 Model
   "model",           // 已升级为认知模型
+  "parked",          // 暂存，不处理
+  "discarded",       // 放弃，不入库
 ] as const;
 export type EntryStatus = typeof ENTRY_STATUSES[number];
 
@@ -84,6 +86,14 @@ export const entries = mysqlTable("entries", {
 
   // Cluster / Model upgrade
   clusterId: int("clusterId"),
+
+  // Next action (what to do next)
+  nextActionType: varchar("nextActionType", { length: 64 }),
+  nextAction: text("nextAction"),
+
+  // Three-layer interpretation
+  aiInterpretation: text("aiInterpretation"),   // AI first pass
+  finalInterpretation: text("finalInterpretation"), // after user correction
 
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

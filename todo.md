@@ -31,3 +31,16 @@
 ## Phase 5：测试与发布
 - [x] 单元测试更新
 - [x] 发布上线
+
+## 系统升级 v2（低摩擦推进版）
+- [x] 数据库：entries 表新增 parked/discarded 状态
+- [x] 数据库：新增 nextActionType、nextAction 字段
+- [x] 数据库：新增 aiInterpretation、finalInterpretation 字段（三层解释）
+- [x] 后端：AI Prompt 新增 nextAction 生成
+- [x] 后端：GitHub 目录改为 00_Inbox/01_Concepts/.../09_Models/_System
+- [x] 后端：升级模型条件改为 4 条件判断（不只看数量）
+- [x] 后端：新增 parked/discarded 操作接口
+- [x] 前端：主界面简化为 4 入口（快速输入/等我确认/値得深挖/我的模型）
+- [x] 前端：校正页底部显示 AI 建议分类，用户一句话校正
+- [x] 前端：条目展示 nextAction（下一步最小动作）
+- [x] 前端：条目支持一键 parked/discarded 操作

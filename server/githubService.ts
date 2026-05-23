@@ -19,62 +19,101 @@ interface NoteForSync {
   aiAnswer: string | null;
   researchSuggestions: string[] | null;
   createdAt: Date;
-  topicFolder?: string;
+  userCorrection?: string | null;
+  aiInterpretation?: string | null;
+  finalInterpretation?: string | null;
+  nextActionType?: string | null;
+  nextAction?: string | null;
+  clusterName?: string;
 }
 
+// ── GitHub folder mapping (aligned with ai-brain-system repo structure) ──────
+const CATEGORY_TO_FOLDER: Record<EntryCategory, string> = {
+  Concept:     "01_Concepts",
+  Person:      "02_People",
+  Case:        "03_Cases",
+  Question:    "04_Questions",
+  Insight:     "05_Insights",
+  Idea:        "06_Ideas",
+  Skill:       "07_Skills",
+  Action:      "08_Actions",
+  Model:       "09_Models",
+  Trigger:     "01_Concepts",    // Triggers are concept-adjacent
+  Positioning: "05_Insights",    // Positioning is insight-adjacent
+};
+
 export function noteToMarkdown(note: NoteForSync): string {
-  const categoryLabel = CATEGORY_LABELS[note.category] || note.category;
+  const folder = CATEGORY_TO_FOLDER[note.category] || "01_Concepts";
   const tags = note.tags || [];
   const suggestions = note.researchSuggestions || [];
   const date = note.createdAt.toISOString().split("T")[0];
 
   let md = `---
 id: ${note.id}
-title: "${note.title || "未命名"}"
 category: ${note.category}
-category_label: ${categoryLabel}
+folder: ${folder}
 tags: [${tags.map((t) => `"${t}"`).join(", ")}]
 created: ${date}
 ---
 
 # ${note.title || "未命名"}
 
-> **分类**：${categoryLabel}${tags.length > 0 ? `　**标签**：${tags.join(" · ")}` : ""}
+> **分类**：${CATEGORY_LABELS[note.category]}${tags.length > 0 ? `　**标签**：${tags.join(" · ")}` : ""}
 
-## 原始记录
-
-${note.rawText || "（无文字内容）"}
 `;
 
-  if (note.imageUrl) md += `\n## 原始图片\n\n![笔记图片](${note.imageUrl})\n`;
-  if (note.summary) md += `\n## AI 摘要\n\n${note.summary}\n`;
+  if (note.aiInterpretation) {
+    md += `## AI 初次理解\n\n${note.aiInterpretation}\n\n`;
+  }
+
+  if (note.userCorrection) {
+    md += `## 用户校正\n\n${note.userCorrection}\n\n`;
+  }
+
+  if (note.finalInterpretation) {
+    md += `## 最终理解\n\n${note.finalInterpretation}\n\n`;
+  } else if (note.summary) {
+    md += `## 核心提炼\n\n${note.summary}\n\n`;
+  }
+
+  if (note.rawText) {
+    md += `## 原始记录\n\n${note.rawText}\n\n`;
+  }
+
+  if (note.imageUrl) {
+    md += `## 原始图片\n\n![](${note.imageUrl})\n\n`;
+  }
 
   if (note.aiAnswer) {
     const displayAnswer = note.aiAnswer.includes("__ITEMS__")
       ? note.aiAnswer.split("__ITEMS__")[0].trim()
       : note.aiAnswer;
-    if (displayAnswer) md += `\n## AI 回答\n\n${displayAnswer}\n`;
+    if (displayAnswer) md += `## AI 回答\n\n${displayAnswer}\n\n`;
+  }
+
+  if (note.nextAction) {
+    md += `## 下一步\n\n**类型**：${note.nextActionType || ""}　**行动**：${note.nextAction}\n\n`;
   }
 
   if (suggestions.length > 0) {
-    md += `\n## 延伸研究方向\n\n`;
-    suggestions.forEach((s, i) => { md += `${i + 1}. ${s}\n`; });
+    md += `## 延伸研究\n\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`;
   }
 
-  md += `\n---\n*认知处理系统 · ${new Date().toLocaleString("zh-CN")}*\n`;
+  md += `---\n*认知处理系统 · ${date}*\n`;
   return md;
 }
 
 export function getNoteFilePath(note: NoteForSync): string {
-  const categoryLabel = CATEGORY_LABELS[note.category] || "其他";
+  const folder = CATEGORY_TO_FOLDER[note.category] || "01_Concepts";
   const date = note.createdAt.toISOString().split("T")[0];
-  const safeTitle = (note.title || `note-${note.id}`)
+  const safeTitle = (note.title || `entry-${note.id}`)
     .replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 50);
-  if (note.topicFolder) {
-    const safeFolder = note.topicFolder.replace(/[/\\:*?"<>|]/g, "-");
-    return `主题/${safeFolder}/${date}-${safeTitle}.md`;
+
+  if (note.clusterName) {
+    const safeCluster = note.clusterName.replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 40);
+    return `${folder}/${safeCluster}/${date}-${safeTitle}.md`;
   }
-  return `${categoryLabel}/${date}-${safeTitle}.md`;
+  return `${folder}/${date}-${safeTitle}.md`;
 }
 
 export async function syncNoteToGithub(
@@ -83,8 +122,26 @@ export async function syncNoteToGithub(
 ): Promise<{ success: boolean; path: string; url: string; error?: string }> {
   const filePath = getNoteFilePath(note);
   const content = noteToMarkdown(note);
-  const base64Content = Buffer.from(content, "utf-8").toString("base64");
+  return pushToGithub(config, filePath, content, `📥 入库: ${note.title || "未命名"}`);
+}
 
+export async function syncModelToGithub(
+  config: GithubConfig,
+  modelName: string,
+  modelContent: string
+): Promise<{ success: boolean; path: string; error?: string }> {
+  const safeTitle = modelName.replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 50);
+  const filePath = `09_Models/${safeTitle}.md`;
+  const result = await pushToGithub(config, filePath, modelContent, `🧠 认知模型: ${modelName}`);
+  return { success: result.success, path: result.path, error: result.error };
+}
+
+async function pushToGithub(
+  config: GithubConfig,
+  filePath: string,
+  content: string,
+  commitMessage: string
+): Promise<{ success: boolean; path: string; url: string; error?: string }> {
   const apiBase = `https://api.github.com/repos/${config.repoOwner}/${config.repoName}/contents/${filePath}`;
   const headers = {
     Authorization: `Bearer ${config.githubToken}`,
@@ -103,8 +160,8 @@ export async function syncNoteToGithub(
   } catch {}
 
   const body: Record<string, string> = {
-    message: `📝 ${sha ? "更新" : "新增"}笔记: ${note.title || "未命名"}`,
-    content: base64Content,
+    message: commitMessage,
+    content: Buffer.from(content, "utf-8").toString("base64"),
     branch: config.branch,
   };
   if (sha) body.sha = sha;

@@ -22,6 +22,9 @@ function packAnalysis(result: AIAnalysisResult) {
     suggestedClusterName: result.suggestedClusterName || "",
     needsDeepDive: result.needsDeepDive || false,
     deepDiveReason: result.deepDiveReason || "",
+    nextActionType: result.nextActionType || "parked",
+    nextAction: result.nextAction || "",
+    aiInterpretation: result.aiInterpretation || "",
   });
   return {
     rawText: result.rawText || null,
@@ -35,6 +38,9 @@ function packAnalysis(result: AIAnalysisResult) {
     connectionInsight: result.connectionInsight || null,
     noteItemsJson,
     needsDeepDive: result.needsDeepDive ? 1 : 0,
+    nextActionType: result.nextActionType || "parked",
+    nextAction: result.nextAction || null,
+    aiInterpretation: result.aiInterpretation || null,
   };
 }
 
@@ -148,14 +154,21 @@ export const entriesRouter = router({
         needsDeepDive: unpacked.needsDeepDive || false,
         deepDiveReason: unpacked.deepDiveReason || "",
         suggestedClusterName: unpacked.suggestedClusterName || "",
+        nextActionType: (unpacked.nextActionType || (entry as any).nextActionType || "parked") as any,
+        nextAction: unpacked.nextAction || (entry as any).nextAction || "",
+        aiInterpretation: unpacked.aiInterpretation || (entry as any).aiInterpretation || "",
       };
 
       const updated = await applyCorrection(currentAnalysis, input.instruction);
       const packed = packAnalysis(updated);
 
+      // finalInterpretation = AI's updated summary after user correction
+      const finalInterpretation = updated.summary || updated.coreTheme || null;
+
       await db.update(entries).set({
         ...packed,
         userCorrection: input.instruction,
+        finalInterpretation,
       }).where(eq(entries.id, input.entryId));
 
       const [updatedEntry] = await db.select().from(entries).where(eq(entries.id, input.entryId)).limit(1);
@@ -299,6 +312,21 @@ export const entriesRouter = router({
       }
 
       return { entry, cluster };
+    }),
+
+
+  // ── Set entry status (park / discard / reactivate) ────────────────────────
+  setStatus: protectedProcedure
+    .input(z.object({
+      entryId: z.number(),
+      status: z.enum(["parked", "discarded", "pending_review", "needs_deepdive"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      await db.update(entries).set({ status: input.status as any })
+        .where(and(eq(entries.id, input.entryId), eq(entries.userId, ctx.user.id)));
+      return { success: true };
     }),
 
   // ── Delete entry ──────────────────────────────────────────────────────────

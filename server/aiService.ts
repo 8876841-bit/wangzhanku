@@ -41,6 +41,29 @@ export interface NoteItem {
   furtherQuestions: string[];
 }
 
+export const NEXT_ACTION_TYPES = [
+  "parked",          // 暂存，不处理
+  "research",        // 查资料
+  "find_case",       // 找案例
+  "compare",         // 做对比
+  "experiment",      // 做实验
+  "create_content",  // 写成内容
+  "upgrade_model",   // 升级模型
+  "deepdive",        // 深入研究
+] as const;
+export type NextActionType = typeof NEXT_ACTION_TYPES[number];
+
+export const NEXT_ACTION_LABELS: Record<NextActionType, string> = {
+  parked: "暂存",
+  research: "查资料",
+  find_case: "找案例",
+  compare: "做对比",
+  experiment: "做实验",
+  create_content: "写成内容",
+  upgrade_model: "升级模型",
+  deepdive: "深入研究",
+};
+
 export interface AIAnalysisResult {
   rawText: string;
   category: EntryCategory;
@@ -56,6 +79,11 @@ export interface AIAnalysisResult {
   needsDeepDive: boolean;
   deepDiveReason: string;
   suggestedClusterName: string;
+  // Next action
+  nextActionType: NextActionType;
+  nextAction: string;          // one concrete minimal action
+  // Three-layer interpretation
+  aiInterpretation: string;    // what AI understood from raw input
 }
 
 // ── System prompt ────────────────────────────────────────────────────────────
@@ -88,6 +116,7 @@ ${categoryList}
 请严格按以下 JSON 格式返回（不要有任何额外文字）：
 {
   "rawText": "识别到的原始文字内容",
+  "aiInterpretation": "AI 对这条内容的初次理解（50字以内，说清楚你理解到的是什么）",
   "category": "11类之一",
   "title": "简洁有力的标题（15字以内，不要平淡描述，要有洞察力）",
   "summary": "核心提炼（80字以内，说出本质，不是复述）",
@@ -108,7 +137,9 @@ ${categoryList}
   "relatedKeywords": ["关联关键词1", "关联关键词2", "关联关键词3"],
   "needsDeepDive": true或false,
   "deepDiveReason": "如果 needsDeepDive 为 true，说明原因（30字以内）；否则空字符串",
-  "suggestedClusterName": "建议归入的知识簇名称（如「AI认知路径」「高密度环境」），5-15字"
+  "suggestedClusterName": "建议归入的知识簇名称（如「AI认知路径」「高密度环境」），5-15字",
+  "nextActionType": "以下之一：parked/research/find_case/compare/experiment/create_content/upgrade_model/deepdive",
+  "nextAction": "最小可执行的下一步动作（一句话，具体可操作，不超过50字）"
 }`;
 }
 
