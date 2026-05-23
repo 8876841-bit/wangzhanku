@@ -193,6 +193,7 @@ const pwaPlugin = VitePWA({
       },
     ],
   },
+  injectRegister: null, // We use virtual:pwa-register/react manually
   devOptions: {
     enabled: false,
   },

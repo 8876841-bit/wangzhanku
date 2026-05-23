@@ -11,6 +11,7 @@ import NoteDetail from "./pages/NoteDetail";
 import Graph from "./pages/Graph";
 import Settings from "./pages/Settings";
 import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
+import { PWAUpdatePrompt } from "./components/PWAUpdatePrompt";
 
 function Router() {
   return (
@@ -42,6 +43,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          <PWAUpdatePrompt />
           <PWAInstallPrompt />
         </TooltipProvider>
       </ThemeProvider>
