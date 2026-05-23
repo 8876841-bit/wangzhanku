@@ -4,7 +4,7 @@ import { getDb } from "./db";
 import { notes, noteRelations, githubConfigs } from "../drizzle/schema";
 import { eq, desc, and, or, like, inArray } from "drizzle-orm";
 import { analyzeNoteImage, analyzeNoteText, findRelatedNotes } from "./aiService";
-import { storagePut } from "./storage";
+import { storagePut, storageGetSignedUrl } from "./storage";
 import { syncNoteToGithub, validateGithubConfig } from "./githubService";
 import type { NoteCategory } from "./aiService";
 
@@ -26,11 +26,14 @@ export const notesRouter = router({
       let analysisResult;
 
       // Upload image to S3 if provided
+      let aiImageUrl: string | null = null; // publicly accessible URL for OpenAI
       if (input.imageBase64) {
         const buffer = Buffer.from(input.imageBase64, "base64");
         const ext = input.imageType.split("/")[1] || "jpg";
         const stored = await storagePut(`notes/images/note-${Date.now()}.${ext}`, buffer, input.imageType);
-        imageUrl = stored.url;
+        imageUrl = stored.url; // internal /manus-storage/... path for display
+        // Get a publicly accessible signed URL for OpenAI to download
+        aiImageUrl = await storageGetSignedUrl(stored.key);
       }
 
       // Create a placeholder note with "processing" status
@@ -45,8 +48,8 @@ export const notesRouter = router({
 
       try {
         // Run AI analysis
-        if (imageUrl) {
-          analysisResult = await analyzeNoteImage(imageUrl);
+        if (aiImageUrl) {
+          analysisResult = await analyzeNoteImage(aiImageUrl);
         } else if (input.textContent) {
           analysisResult = await analyzeNoteText(input.textContent);
         } else {
