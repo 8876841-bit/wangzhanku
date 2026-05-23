@@ -33,3 +33,11 @@
 ## 测试
 - [x] 后端 API 单元测试
 - [x] GitHub 同步功能测试
+
+## PWA 支持
+- [x] 生成 App 图标（多尺寸 PNG）
+- [x] 创建 manifest.json（App 名称、颜色、图标、显示模式）
+- [x] 创建 Service Worker（离线缓存核心资源）
+- [x] 在 index.html 中注册 manifest 和 Service Worker
+- [x] 配置 Vite PWA 插件
+- [x] 验证 PWA 安装提示正常工作
