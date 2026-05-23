@@ -30,6 +30,144 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
 
 type RecordingState = "idle" | "recording" | "processing";
 
+// ── Inline voice input component for each card ──
+function InlineVoiceInput({
+  context,
+  onInstruction,
+  isApplying,
+}: {
+  context: string;       // the keyword/title of the card for context
+  onInstruction: (text: string) => void;
+  isApplying: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
+  const [textInput, setTextInput] = useState("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const transcribeMutation = trpc.notes.transcribeVoice.useMutation({
+    onSuccess: (result) => {
+      if (result.text.trim()) {
+        // Prepend context so AI knows which item to modify
+        onInstruction(`关于「${context}」这条：${result.text}`);
+        setOpen(false);
+      }
+      setRecordingState("idle");
+    },
+    onError: () => {
+      toast.error("语音识别失败，请重试");
+      setRecordingState("idle");
+    },
+  });
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(",")[1];
+          setRecordingState("processing");
+          transcribeMutation.mutate({ audioBase64: base64, mimeType: "audio/webm" });
+        };
+        reader.readAsDataURL(blob);
+      };
+      mediaRecorder.start();
+      setRecordingState("recording");
+    } catch {
+      toast.error("无法访问麦克风，请检查权限设置");
+    }
+  };
+
+  const stopRecording = () => mediaRecorderRef.current?.stop();
+
+  const handleTextSend = () => {
+    if (!textInput.trim()) return;
+    onInstruction(`关于「${context}」这条：${textInput}`);
+    setTextInput("");
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-2 w-full py-1.5 rounded-lg border border-dashed border-muted-foreground/30 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all flex items-center justify-center gap-1.5"
+      >
+        <span>🎙️</span> 需要调整这条？点此语音说明
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 bg-primary/5 border border-primary/20 rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-primary">调整「{context}」</p>
+        <button onClick={() => setOpen(false)} className="text-muted-foreground text-xs hover:text-foreground">✕ 关闭</button>
+      </div>
+
+      {/* Voice button */}
+      <div className="flex items-center gap-3">
+        <button
+          onPointerDown={startRecording}
+          onPointerUp={stopRecording}
+          onPointerLeave={stopRecording}
+          disabled={recordingState === "processing" || isApplying}
+          className={`w-12 h-12 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all flex-shrink-0 select-none ${
+            recordingState === "recording"
+              ? "bg-red-500 text-white scale-110 shadow-md"
+              : recordingState === "processing" || isApplying
+              ? "bg-muted text-muted-foreground cursor-not-allowed"
+              : "bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-95"
+          }`}
+        >
+          {recordingState === "recording" ? (
+            <span className="text-lg">⏹</span>
+          ) : recordingState === "processing" || isApplying ? (
+            <div className="w-4 h-4 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <span className="text-lg">🎙️</span>
+          )}
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-muted-foreground">
+            {recordingState === "recording" ? "🔴 录音中，松开停止..." :
+             recordingState === "processing" ? "识别中..." :
+             isApplying ? "AI 更新中..." :
+             "按住麦克风说出你的修改意见"}
+          </p>
+        </div>
+      </div>
+
+      {/* Text fallback */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={textInput}
+          onChange={(e) => setTextInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleTextSend()}
+          placeholder="或打字输入修改意见..."
+          className="flex-1 px-3 py-2 bg-white border border-border rounded-lg text-xs outline-none focus:border-primary/50 transition-all"
+        />
+        <button
+          onClick={handleTextSend}
+          disabled={!textInput.trim() || isApplying}
+          className="px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+        >
+          发送
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Calibrate() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
@@ -37,14 +175,9 @@ export default function Calibrate() {
   const noteId = parseInt(id || "0");
   const utils = trpc.useUtils();
 
-  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
-  const [transcript, setTranscript] = useState("");
   const [isApplying, setIsApplying] = useState(false);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set([0]));
   const [topicName, setTopicName] = useState("");
-  const [showTopicInput, setShowTopicInput] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   const { data, isLoading, refetch } = trpc.notes.getById.useQuery(
     { id: noteId },
@@ -53,25 +186,9 @@ export default function Calibrate() {
 
   const { data: topicsData } = trpc.notes.listTopics.useQuery(undefined, { enabled: isAuthenticated });
 
-  const transcribeMutation = trpc.notes.transcribeVoice.useMutation({
-    onSuccess: async (result) => {
-      setTranscript(result.text);
-      // Auto-apply the transcribed instruction
-      if (result.text.trim()) {
-        await applyInstruction(result.text);
-      }
-      setRecordingState("idle");
-    },
-    onError: (err) => {
-      toast.error(`语音识别失败: ${err.message}`);
-      setRecordingState("idle");
-    },
-  });
-
   const calibrateMutation = trpc.notes.applyCalibration.useMutation({
     onSuccess: () => {
       refetch();
-      setTranscript("");
       setIsApplying(false);
       toast.success("已更新分析内容");
     },
@@ -89,52 +206,16 @@ export default function Calibrate() {
     onError: (err) => toast.error(`存档失败: ${err.message}`),
   });
 
-  const applyInstruction = async (instruction: string) => {
+  const applyInstruction = (instruction: string) => {
     setIsApplying(true);
     calibrateMutation.mutate({ noteId, instruction });
   };
 
-  // Start recording
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(",")[1];
-          setRecordingState("processing");
-          transcribeMutation.mutate({ audioBase64: base64, mimeType: "audio/webm" });
-        };
-        reader.readAsDataURL(audioBlob);
-      };
-
-      mediaRecorder.start();
-      setRecordingState("recording");
-    } catch {
-      toast.error("无法访问麦克风，请检查权限设置");
-    }
-  };
-
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-  };
-
   const handleConfirm = () => {
-    if (topicName.trim()) {
-      confirmMutation.mutate({ noteId, topicName: topicName.trim() });
-    } else {
-      confirmMutation.mutate({ noteId });
-    }
+    confirmMutation.mutate({
+      noteId,
+      topicName: topicName.trim() || undefined,
+    });
   };
 
   // Parse note data
@@ -143,7 +224,6 @@ export default function Calibrate() {
   let connectionInsight = "";
   let suggestedTopicName = "";
   let suggestedTopicReason = "";
-  let displayAiAnswer: string | null = null;
 
   if (data?.note) {
     const note = data.note as any;
@@ -157,19 +237,9 @@ export default function Calibrate() {
       connectionInsight = parsed.connectionInsight || note.connectionInsight || "";
       suggestedTopicName = parsed.suggestedTopicName || "";
       suggestedTopicReason = parsed.suggestedTopicReason || "";
-      if (markerIdx !== -1) {
-        displayAiAnswer = raw.slice(0, markerIdx).trim() || null;
-      }
-    } catch {
-      displayAiAnswer = data.note.aiAnswer;
-    }
-    // Pre-fill topic name with AI suggestion
-    if (!topicName && suggestedTopicName) {
-      setTopicName(suggestedTopicName);
-    }
+    } catch {}
   }
 
-  // Set suggested topic name when data loads
   useEffect(() => {
     if (suggestedTopicName && !topicName) {
       setTopicName(suggestedTopicName);
@@ -199,14 +269,12 @@ export default function Calibrate() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-foreground">校准分析结果</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">用语音告诉 AI 哪里需要修改，满意后点击「确认存档」</p>
+            <p className="text-xs text-muted-foreground mt-0.5">每条内容下方可单独语音调整，满意后点「确认存档」</p>
           </div>
-          <span className="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 font-medium">
-            草稿
-          </span>
+          <span className="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 font-medium">草稿</span>
         </div>
 
-        {/* Note Header Info */}
+        {/* Note Header */}
         <div className="bg-white rounded-2xl border border-border p-4">
           <div className="flex items-start gap-3">
             <span className="text-2xl">{getCategoryIcon(note.category)}</span>
@@ -224,6 +292,12 @@ export default function Calibrate() {
               )}
             </div>
           </div>
+          {/* Inline voice for overall note */}
+          <InlineVoiceInput
+            context="整体内容"
+            onInstruction={applyInstruction}
+            isApplying={isApplying}
+          />
         </div>
 
         {/* Original Image */}
@@ -248,10 +322,15 @@ export default function Calibrate() {
                 <p className="text-sm text-foreground leading-relaxed">{connectionInsight}</p>
               </div>
             )}
+            <InlineVoiceInput
+              context="核心命题和逻辑链条"
+              onInstruction={applyInstruction}
+              isApplying={isApplying}
+            />
           </div>
         )}
 
-        {/* Note Items */}
+        {/* Note Items — each with inline voice */}
         {noteItems.length > 0 && (
           <div className="space-y-2">
             <p className="text-sm font-semibold text-foreground">🧠 逐条分析 ({noteItems.length} 条)</p>
@@ -277,6 +356,7 @@ export default function Calibrate() {
                     </div>
                     <span className="text-muted-foreground text-xs flex-shrink-0">{isExpanded ? "▲" : "▼"}</span>
                   </button>
+
                   {isExpanded && (
                     <div className="px-4 pb-4 space-y-2.5 border-t border-border/50 pt-3">
                       <p className="text-sm text-foreground leading-relaxed">{item.deepAnswer}</p>
@@ -296,6 +376,12 @@ export default function Calibrate() {
                           ))}
                         </div>
                       )}
+                      {/* ── Inline voice adjustment for this item ── */}
+                      <InlineVoiceInput
+                        context={item.keyword}
+                        onInstruction={applyInstruction}
+                        isApplying={isApplying}
+                      />
                     </div>
                   )}
                 </div>
@@ -309,6 +395,11 @@ export default function Calibrate() {
           <div className="bg-blue-50/50 rounded-2xl border border-blue-100 p-4">
             <p className="text-xs font-semibold text-blue-600 mb-1.5">🤖 AI 摘要</p>
             <p className="text-sm text-foreground leading-relaxed">{note.summary}</p>
+            <InlineVoiceInput
+              context="AI 摘要"
+              onInstruction={applyInstruction}
+              isApplying={isApplying}
+            />
           </div>
         )}
 
@@ -324,13 +415,12 @@ export default function Calibrate() {
             type="text"
             value={topicName}
             onChange={(e) => setTopicName(e.target.value)}
-            placeholder="输入主题名称（如「AI Agent」「认知方法论」），留空则不归类"
+            placeholder="输入主题名称（如「AI Agent」），留空则不归类"
             className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all"
           />
           {suggestedTopicReason && topicName === suggestedTopicName && (
             <p className="text-xs text-muted-foreground mt-1.5">💡 {suggestedTopicReason}</p>
           )}
-          {/* Existing topics quick select */}
           {topicsData && topicsData.length > 0 && (
             <div className="flex gap-1.5 mt-2 flex-wrap">
               {topicsData.slice(0, 6).map((t) => (
@@ -350,83 +440,13 @@ export default function Calibrate() {
           )}
         </div>
 
-        {/* Voice Calibration Area */}
-        <div className="bg-white rounded-2xl border border-border p-4">
-          <p className="text-sm font-semibold text-foreground mb-1">🎙️ 语音校准</p>
-          <p className="text-xs text-muted-foreground mb-3">
-            按住录音，告诉 AI 哪里需要修改。例如：「Karpathy 这条再深入一点，说说他从学术转向工程的过程」
-          </p>
-
-          {/* Recording Button */}
-          <div className="flex flex-col items-center gap-3">
-            <button
-              onPointerDown={startRecording}
-              onPointerUp={stopRecording}
-              onPointerLeave={stopRecording}
-              disabled={recordingState === "processing" || isApplying}
-              className={`w-20 h-20 rounded-full flex flex-col items-center justify-center gap-1 transition-all select-none ${
-                recordingState === "recording"
-                  ? "bg-red-500 text-white scale-110 shadow-lg shadow-red-200"
-                  : recordingState === "processing" || isApplying
-                  ? "bg-muted text-muted-foreground cursor-not-allowed"
-                  : "bg-primary text-white hover:bg-primary/90 shadow-md shadow-primary/20 active:scale-95"
-              }`}
-            >
-              {recordingState === "recording" ? (
-                <>
-                  <span className="text-2xl">⏹</span>
-                  <span className="text-[10px] font-medium">松开停止</span>
-                </>
-              ) : recordingState === "processing" ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
-                  <span className="text-[10px]">识别中</span>
-                </>
-              ) : isApplying ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
-                  <span className="text-[10px]">更新中</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-2xl">🎙️</span>
-                  <span className="text-[10px] font-medium">按住说话</span>
-                </>
-              )}
-            </button>
-
-            {transcript && (
-              <div className="w-full bg-muted/50 rounded-xl p-3">
-                <p className="text-xs text-muted-foreground mb-1">识别到的指令：</p>
-                <p className="text-sm text-foreground">{transcript}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Text fallback */}
-          <div className="mt-3 relative">
-            <input
-              type="text"
-              placeholder="或者直接打字输入修改指令..."
-              className="w-full px-3 py-2.5 pr-16 bg-muted/30 border border-border rounded-xl text-sm outline-none focus:border-primary/50 transition-all"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
-                  applyInstruction((e.target as HTMLInputElement).value);
-                  (e.target as HTMLInputElement).value = "";
-                }
-              }}
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">回车发送</span>
-          </div>
-        </div>
-
         {/* Confirm Button */}
         <button
           onClick={handleConfirm}
-          disabled={confirmMutation.isPending}
+          disabled={confirmMutation.isPending || isApplying}
           className="w-full py-4 rounded-2xl bg-primary text-white font-semibold text-base hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 active:scale-[0.98] disabled:opacity-50"
         >
-          {confirmMutation.isPending ? "存档中..." : "✅ 确认存档"}
+          {confirmMutation.isPending ? "存档中..." : isApplying ? "AI 更新中，请稍候..." : "✅ 确认存档"}
         </button>
         <p className="text-xs text-muted-foreground text-center -mt-2">
           确认后内容将保存到知识库{topicName ? `，归入「${topicName}」主题` : ""}
