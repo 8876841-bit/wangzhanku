@@ -1,40 +1,44 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 
-declare const __APP_BUILD_TIME__: string;
-
-// Get the build time baked in at compile time
-const CLIENT_BUILD_TIME = typeof __APP_BUILD_TIME__ !== "undefined"
-  ? __APP_BUILD_TIME__
-  : new Date().toISOString();
+const KNOWN_VERSION_KEY = "app_known_build_time";
 
 export function PWAUpdatePrompt() {
   const [showBanner, setShowBanner] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const checkedRef = useRef(false);
+  const [latestBuildTime, setLatestBuildTime] = useState<string | null>(null);
 
   const { data } = trpc.version.check.useQuery(undefined, {
-    // Check once on mount, then every 2 minutes
     refetchInterval: 2 * 60 * 1000,
     refetchOnWindowFocus: true,
     staleTime: 60 * 1000,
   });
 
   useEffect(() => {
-    if (!data) return;
-    
+    if (!data?.buildTime) return;
+
     const serverBuildTime = data.buildTime;
-    
-    // Compare: if server has a newer build time than client
-    if (serverBuildTime && serverBuildTime !== CLIENT_BUILD_TIME) {
-      if (!dismissed) {
-        setShowBanner(true);
-      }
+    const knownBuildTime = localStorage.getItem(KNOWN_VERSION_KEY);
+
+    if (!knownBuildTime) {
+      // First visit: record this version as known, don't show banner
+      localStorage.setItem(KNOWN_VERSION_KEY, serverBuildTime);
+      return;
     }
-  }, [data, dismissed]);
+
+    if (serverBuildTime !== knownBuildTime) {
+      // Server has a newer version than what user last saw
+      setLatestBuildTime(serverBuildTime);
+      setShowBanner(true);
+    }
+  }, [data]);
 
   const handleUpdate = () => {
-    // Clear all caches and reload
+    // Record the new version BEFORE reloading, so after reload it won't trigger again
+    if (latestBuildTime) {
+      localStorage.setItem(KNOWN_VERSION_KEY, latestBuildTime);
+    }
+
+    // Clear caches then reload
     const doReload = () => window.location.reload();
     if ("caches" in window) {
       caches.keys().then((names) => {
@@ -45,7 +49,15 @@ export function PWAUpdatePrompt() {
     }
   };
 
-  if (!showBanner || dismissed) return null;
+  const handleDismiss = () => {
+    // User dismisses: record the new version so it won't show again until next update
+    if (latestBuildTime) {
+      localStorage.setItem(KNOWN_VERSION_KEY, latestBuildTime);
+    }
+    setShowBanner(false);
+  };
+
+  if (!showBanner) return null;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[100] animate-fade-in">
@@ -59,7 +71,7 @@ export function PWAUpdatePrompt() {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => setDismissed(true)}
+            onClick={handleDismiss}
             className="text-white/60 hover:text-white text-xs px-2 py-1 transition-colors"
           >
             稍后
