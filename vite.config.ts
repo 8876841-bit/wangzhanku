@@ -152,7 +152,7 @@ function vitePluginManusDebugCollector(): Plugin {
 }
 
 const pwaPlugin = VitePWA({
-  registerType: "autoUpdate",
+  registerType: "prompt", // Use prompt mode so needRefresh is triggered and update banner shows
   includeAssets: ["favicon.ico", "apple-touch-icon.png", "icon-192.png", "icon-512.png"],
   manifest: {
     name: "第二大脑 · 知识管理",
