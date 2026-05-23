@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { getCategoryBadgeClass, getCategoryLabel, getCategoryIcon } from "@/lib/noteUtils";
 import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
+import { createAudioRecorder } from "@/lib/audioRecorder";
 
 interface NoteItem {
   keyword: string;
@@ -43,8 +44,6 @@ function InlineVoiceInput({
   const [open, setOpen] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [textInput, setTextInput] = useState("");
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   const transcribeMutation = trpc.notes.transcribeVoice.useMutation({
     onSuccess: (result) => {
@@ -61,32 +60,25 @@ function InlineVoiceInput({
     },
   });
 
+  const recorderRef = useRef<ReturnType<typeof createAudioRecorder> | null>(null);
+
   const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      mediaRecorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(",")[1];
-          setRecordingState("processing");
-          transcribeMutation.mutate({ audioBase64: base64, mimeType: "audio/webm" });
-        };
-        reader.readAsDataURL(blob);
-      };
-      mediaRecorder.start();
-      setRecordingState("recording");
-    } catch {
-      toast.error("无法访问麦克风，请检查权限设置");
-    }
+    const recorder = createAudioRecorder(
+      (result) => {
+        setRecordingState("processing");
+        transcribeMutation.mutate({ audioBase64: result.base64, mimeType: result.mimeType });
+      },
+      (err) => {
+        toast.error(err);
+        setRecordingState("idle");
+      }
+    );
+    recorderRef.current = recorder;
+    await recorder.start();
+    setRecordingState("recording");
   };
 
-  const stopRecording = () => mediaRecorderRef.current?.stop();
+  const stopRecording = () => recorderRef.current?.stop();
 
   const handleTextSend = () => {
     if (!textInput.trim()) return;
