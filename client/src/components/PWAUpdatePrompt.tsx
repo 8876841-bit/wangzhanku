@@ -1,27 +1,51 @@
-import { useEffect, useState } from "react";
-import { useRegisterSW } from "virtual:pwa-register/react";
+import { useEffect, useState, useRef } from "react";
+import { trpc } from "@/lib/trpc";
+
+declare const __APP_BUILD_TIME__: string;
+
+// Get the build time baked in at compile time
+const CLIENT_BUILD_TIME = typeof __APP_BUILD_TIME__ !== "undefined"
+  ? __APP_BUILD_TIME__
+  : new Date().toISOString();
 
 export function PWAUpdatePrompt() {
-  const {
-    needRefresh: [needRefresh],
-    updateServiceWorker,
-  } = useRegisterSW({
-    onRegistered(r: ServiceWorkerRegistration | undefined) {
-      // Check for updates every 60 seconds when app is open
-      if (r) {
-        setInterval(() => r.update(), 60 * 1000);
-      }
-    },
+  const [showBanner, setShowBanner] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const checkedRef = useRef(false);
+
+  const { data } = trpc.version.check.useQuery(undefined, {
+    // Check once on mount, then every 2 minutes
+    refetchInterval: 2 * 60 * 1000,
+    refetchOnWindowFocus: true,
+    staleTime: 60 * 1000,
   });
 
-  const [dismissed, setDismissed] = useState(false);
-
-  // Reset dismissed state when a new update is detected
   useEffect(() => {
-    if (needRefresh) setDismissed(false);
-  }, [needRefresh]);
+    if (!data) return;
+    
+    const serverBuildTime = data.buildTime;
+    
+    // Compare: if server has a newer build time than client
+    if (serverBuildTime && serverBuildTime !== CLIENT_BUILD_TIME) {
+      if (!dismissed) {
+        setShowBanner(true);
+      }
+    }
+  }, [data, dismissed]);
 
-  if (!needRefresh || dismissed) return null;
+  const handleUpdate = () => {
+    // Clear all caches and reload
+    const doReload = () => window.location.reload();
+    if ("caches" in window) {
+      caches.keys().then((names) => {
+        names.forEach((name) => caches.delete(name));
+      }).then(doReload, doReload);
+    } else {
+      doReload();
+    }
+  };
+
+  if (!showBanner || dismissed) return null;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[100] animate-fade-in">
@@ -41,7 +65,7 @@ export function PWAUpdatePrompt() {
             稍后
           </button>
           <button
-            onClick={() => updateServiceWorker(true)}
+            onClick={handleUpdate}
             className="bg-white text-primary text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-white/90 transition-colors"
           >
             立即更新
