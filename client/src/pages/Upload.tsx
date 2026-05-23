@@ -25,7 +25,8 @@ export default function Upload() {
   const [imageType, setImageType] = useState("image/jpeg");
   const [textContent, setTextContent] = useState("");
   const [step, setStep] = useState<AnalysisStep>("idle");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);       // 相册选图
+  const cameraInputRef = useRef<HTMLInputElement>(null);     // 直接拍照
 
   const uploadMutation = trpc.notes.uploadAndAnalyze.useMutation({
     onSuccess: (data) => {
@@ -131,8 +132,17 @@ export default function Upload() {
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
           >
+            {/* 相册选图（不强制摄像头） */}
             <input
               ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {/* 直接拍照 */}
+            <input
+              ref={cameraInputRef}
               type="file"
               accept="image/*"
               capture="environment"
@@ -155,16 +165,29 @@ export default function Upload() {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full p-10 flex flex-col items-center gap-3 text-muted-foreground"
-              >
-                <span className="text-5xl">📷</span>
+              <div className="w-full p-8 flex flex-col items-center gap-4 text-muted-foreground">
+                <span className="text-5xl">🖼️</span>
                 <div className="text-center">
-                  <p className="font-medium text-foreground">点击拍照或选择图片</p>
-                  <p className="text-sm mt-1">支持手写笔记、印刷文字、便利贴等</p>
+                  <p className="font-medium text-foreground">选择图片来源</p>
+                  <p className="text-sm mt-1 text-muted-foreground">支持手写笔记、印刷文字、便利贴等</p>
                 </div>
-              </button>
+                <div className="flex gap-3 w-full">
+                  <button
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="flex-1 flex flex-col items-center gap-2 py-4 bg-white rounded-xl border border-border hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-[0.97]"
+                  >
+                    <span className="text-2xl">📷</span>
+                    <span className="text-xs font-medium text-foreground">拍照</span>
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 flex flex-col items-center gap-2 py-4 bg-white rounded-xl border border-border hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-[0.97]"
+                  >
+                    <span className="text-2xl">🖼️</span>
+                    <span className="text-xs font-medium text-foreground">从相册选择</span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
