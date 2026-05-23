@@ -373,21 +373,29 @@ export default function NoteDetail() {
 
         {/* Delete Confirm */}
         {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-5 w-full max-w-sm">
+          <div
+            className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            <div
+              className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-safe"
+              style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px) + 4.5rem)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 bg-muted rounded-full mx-auto mb-4" />
               <h3 className="font-semibold text-foreground mb-2">确认删除</h3>
-              <p className="text-sm text-muted-foreground mb-4">删除后无法恢复，确定要删除这条记录吗？</p>
-              <div className="flex gap-2">
+              <p className="text-sm text-muted-foreground mb-5">删除后无法恢复，确定要删除这条记录吗？</p>
+              <div className="flex gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors"
+                  className="flex-1 py-3 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => deleteMutation.mutate({ id: note.id })}
                   disabled={deleteMutation.isPending}
-                  className="flex-1 py-2.5 rounded-xl bg-destructive text-white text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                  className="flex-1 py-3 rounded-xl bg-destructive text-white text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
                 >
                   {deleteMutation.isPending ? "删除中..." : "确认删除"}
                 </button>
