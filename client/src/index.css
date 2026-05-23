@@ -133,6 +133,22 @@
   }
 }
 
+/* Category badge colors */
+.badge-idea { background-color: oklch(0.95 0.08 80); color: oklch(0.45 0.18 80); border-color: oklch(0.85 0.12 80); }
+.badge-question { background-color: oklch(0.93 0.08 250); color: oklch(0.35 0.18 250); border-color: oklch(0.82 0.12 250); }
+.badge-person { background-color: oklch(0.93 0.08 160); color: oklch(0.35 0.18 160); border-color: oklch(0.82 0.12 160); }
+.badge-skill { background-color: oklch(0.93 0.08 300); color: oklch(0.35 0.18 300); border-color: oklch(0.82 0.12 300); }
+.badge-todo { background-color: oklch(0.95 0.08 25); color: oklch(0.45 0.18 25); border-color: oklch(0.85 0.12 25); }
+.badge-experience { background-color: oklch(0.93 0.08 130); color: oklch(0.35 0.18 130); border-color: oklch(0.82 0.12 130); }
+.badge-quote { background-color: oklch(0.93 0.08 200); color: oklch(0.35 0.18 200); border-color: oklch(0.82 0.12 200); }
+.badge-other { background-color: oklch(0.93 0.02 240); color: oklch(0.45 0.05 240); border-color: oklch(0.85 0.03 240); }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+
 @layer components {
   /**
    * Custom container utility that centers content and adds responsive padding.
