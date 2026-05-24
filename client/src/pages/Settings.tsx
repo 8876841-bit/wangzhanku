@@ -54,7 +54,7 @@ export default function Settings() {
         <div className="bg-white rounded-2xl border border-border p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">GitHub 入库配置</h2>
-            {githubConfig?.hasToken && <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100 font-medium">✓ 已配置</span>}
+            {githubConfig?.hasToken ? <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100 font-medium">✓ 已配置</span> : null}
           </div>
           <div className="space-y-3">
             <div>
@@ -94,7 +94,7 @@ export default function Settings() {
         <div className="bg-muted/50 rounded-2xl border border-border p-4">
           <h3 className="text-xs font-semibold text-muted-foreground mb-3">GitHub 入库结构</h3>
           <div className="font-mono text-xs text-muted-foreground space-y-1 leading-relaxed">
-            {["Concept", "Person", "Case", "Question", "Insight", "Idea", "Skill", "Action", "Model", "Trigger", "Positioning", "Clusters/"].map((f) => (
+            {["01-concepts", "02-people", "03-cases", "04-questions", "05-insights", "06-ideas", "07-skills", "08-actions", "09-models"].map((f) => (
               <div key={f} className="ml-4">📁 {f}</div>
             ))}
           </div>

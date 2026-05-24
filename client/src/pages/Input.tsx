@@ -5,7 +5,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { AppLayout } from "@/components/AppLayout";
 import { toast } from "sonner";
 
-type InputMode = "image" | "text";
+type InputMode = "image" | "text" | "video";
+type ProcessingMode = "recognize_only" | "organize" | "archive" | "deepdive";
+type SourceType = "manual_note" | "screenshot" | "text" | "voice" | "douyin" | "xiaohongshu" | "bilibili" | "podcast" | "article" | "github" | "other";
 
 interface ImageItem {
   id: string;
@@ -15,6 +17,31 @@ interface ImageItem {
   status: "pending" | "uploading" | "analyzing" | "done" | "error";
   entryId?: number;
 }
+
+const PROCESSING_MODE_CONFIG: Record<ProcessingMode, { label: string; desc: string; icon: string; active: string }> = {
+  recognize_only: { label: "只识别", desc: "只还原文字，不分析不入库", icon: "👁", active: "border-gray-400 bg-gray-50 text-gray-700" },
+  organize:       { label: "识别整理", desc: "判断意图+分类+下一步建议", icon: "🗂", active: "border-blue-400 bg-blue-50 text-blue-700" },
+  archive:        { label: "分类入库", desc: "生成结构化内容，等待确认", icon: "📥", active: "border-green-400 bg-green-50 text-green-700" },
+  deepdive:       { label: "深挖这个", desc: "完整深度分析，定义/案例/行动", icon: "🔭", active: "border-purple-400 bg-purple-50 text-purple-700" },
+};
+
+const SOURCE_TYPES = [
+  { key: "screenshot", label: "截图", icon: "📸" },
+  { key: "text", label: "文字", icon: "💬" },
+  { key: "manual_note", label: "手写", icon: "✏️" },
+  { key: "douyin", label: "抖音", icon: "🎵" },
+  { key: "xiaohongshu", label: "小红书", icon: "📕" },
+  { key: "bilibili", label: "B站", icon: "📺" },
+  { key: "podcast", label: "播客", icon: "🎧" },
+  { key: "article", label: "文章", icon: "📄" },
+  { key: "github", label: "GitHub", icon: "💻" },
+  { key: "other", label: "其他", icon: "🔗" },
+] as const;
+
+const DOUYIN_QUICK_TAGS = [
+  "技能酷", "模式可参考", "表达好", "文案好",
+  "可落地", "商业机会", "账号值得拆", "内容结构值得学",
+];
 
 function readFileAsBase64(file: File): Promise<{ preview: string; base64: string; type: string }> {
   return new Promise((resolve) => {
@@ -30,15 +57,31 @@ function readFileAsBase64(file: File): Promise<{ preview: string; base64: string
 export default function Input() {
   const { isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
   const [, navigate] = useLocation();
-  const [mode, setMode] = useState<InputMode>("image");
+
+  const [inputMode, setInputMode] = useState<InputMode>("image");
+  const [processingMode, setProcessingMode] = useState<ProcessingMode>("organize");
+  const [sourceType, setSourceType] = useState<SourceType>("screenshot");
+  const [sourceName, setSourceName] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [attentionPoint, setAttentionPoint] = useState("");
+  const [selectedDouyinTags, setSelectedDouyinTags] = useState<string[]>([]);
+
   const [images, setImages] = useState<ImageItem[]>([]);
   const [textContent, setTextContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [doneEntryIds, setDoneEntryIds] = useState<number[]>([]);
   const [allDone, setAllDone] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-
   const submitMutation = trpc.entries.submit.useMutation();
+
+  const buildAttentionPoint = () => {
+    const parts: string[] = [];
+    if (attentionPoint.trim()) parts.push(attentionPoint.trim());
+    if (selectedDouyinTags.length > 0) parts.push("关注点：" + selectedDouyinTags.join("、"));
+    return parts.join("；") || undefined;
+  };
 
   const handleFilesChange = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -46,7 +89,7 @@ export default function Input() {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("image/")) continue;
       const { preview, base64, type } = await readFileAsBase64(file);
-      newItems.push({ id: `${Date.now()}-${Math.random()}`, preview, base64, type, status: "pending" });
+      newItems.push({ id: Date.now() + "-" + Math.random(), preview, base64, type, status: "pending" });
     }
     setImages((prev) => [...prev, ...newItems]);
   }, []);
@@ -57,192 +100,304 @@ export default function Input() {
   }, [handleFilesChange]);
 
   const handleSubmit = async () => {
-    if (mode === "image" && images.length === 0) { toast.error("请先选择图片"); return; }
-    if (mode === "text" && !textContent.trim()) { toast.error("请输入内容"); return; }
+    if (inputMode === "image" && images.length === 0) { toast.error("请先选择图片"); return; }
+    if (inputMode === "text" && !textContent.trim()) { toast.error("请输入内容"); return; }
+    if (inputMode === "video" && !sourceUrl.trim()) { toast.error("请输入视频链接"); return; }
 
     setIsSubmitting(true);
-    setAllDone(false);
+    const fullAttentionPoint = buildAttentionPoint();
 
-    if (mode === "text") {
-      try {
-        const result = await submitMutation.mutateAsync({ textContent });
-        toast.success("已提交，跳转校正...");
-        navigate(`/review/${result.entry.id}`);
-      } catch (err: any) {
-        toast.error(`提交失败: ${err.message}`);
-      } finally {
-        setIsSubmitting(false);
+    try {
+      if (inputMode === "text") {
+        const result = await submitMutation.mutateAsync({
+          textContent,
+          processingMode,
+          sourceType,
+          sourceName: sourceName || undefined,
+          sourceUrl: sourceUrl || undefined,
+          attentionPoint: fullAttentionPoint,
+        });
+        toast.success("提交成功，AI 正在处理...");
+        navigate("/review/" + result.entryId);
+        return;
       }
-      return;
-    }
 
-    // Multi-image sequential processing
-    const doneIds: number[] = [];
-    for (const img of images) {
-      setImages((prev) => prev.map((i) => i.id === img.id ? { ...i, status: "uploading" } : i));
-      await new Promise((r) => setTimeout(r, 200));
-      setImages((prev) => prev.map((i) => i.id === img.id ? { ...i, status: "analyzing" } : i));
-      try {
-        const result = await submitMutation.mutateAsync({ imageBase64: img.base64, imageType: img.type });
-        doneIds.push(result.entry.id);
-        setImages((prev) => prev.map((i) => i.id === img.id ? { ...i, status: "done", entryId: result.entry.id } : i));
-      } catch {
-        setImages((prev) => prev.map((i) => i.id === img.id ? { ...i, status: "error" } : i));
+      if (inputMode === "video") {
+        const content = textContent
+          ? textContent + "\n\n来源：" + sourceUrl + (sourceName ? "\n账号：" + sourceName : "")
+          : "来源：" + sourceUrl + (sourceName ? "\n账号：" + sourceName : "");
+        const result = await submitMutation.mutateAsync({
+          textContent: content,
+          processingMode,
+          sourceType: "douyin",
+          sourceName: sourceName || undefined,
+          sourceUrl: sourceUrl || undefined,
+          attentionPoint: fullAttentionPoint,
+        });
+        toast.success("提交成功，AI 正在处理...");
+        navigate("/review/" + result.entryId);
+        return;
       }
-    }
 
-    setAllDone(true);
-    setIsSubmitting(false);
+      // Image mode
+      const entryIds: number[] = [];
+      for (const img of images) {
+        setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: "analyzing" } : i));
+        try {
+          const result = await submitMutation.mutateAsync({
+            imageBase64: img.base64,
+            imageType: img.type,
+            processingMode,
+            sourceType,
+            sourceName: sourceName || undefined,
+            sourceUrl: sourceUrl || undefined,
+            attentionPoint: fullAttentionPoint,
+          });
+          setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: "done", entryId: result.entryId } : i));
+          entryIds.push(result.entryId);
+        } catch {
+          setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: "error" } : i));
+        }
+      }
 
-    if (doneIds.length === 1) {
-      toast.success("分析完成，进入校正");
-      setTimeout(() => navigate(`/review/${doneIds[0]}`), 500);
-    } else if (doneIds.length > 1) {
-      toast.success(`${doneIds.length} 条分析完成，请逐一校正`);
+      if (entryIds.length === 1) {
+        navigate("/review/" + entryIds[0]);
+      } else if (entryIds.length > 1) {
+        setDoneEntryIds(entryIds);
+        setAllDone(true);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "提交失败");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const doneCount = images.filter((i) => i.status === "done").length;
-  const totalCount = images.length;
+  if (!isAuthenticated) return null;
+
+  if (allDone && doneEntryIds.length > 0) {
+    return (
+      <AppLayout>
+        <div className="p-4 space-y-3">
+          <div className="text-center py-4">
+            <div className="text-3xl mb-2">✅</div>
+            <p className="font-medium text-gray-800">{doneEntryIds.length} 张图片处理完成</p>
+          </div>
+          {images.filter(i => i.status === "done").map((img, idx) => (
+            <button key={img.id} onClick={() => img.entryId && navigate("/review/" + img.entryId)}
+              className="w-full flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 text-left">
+              <img src={img.preview} className="w-12 h-12 rounded-lg object-cover" alt="" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-700">图片 {idx + 1}</p>
+                <p className="text-xs text-green-600">已完成 → 点击校正</p>
+              </div>
+              <span className="text-gray-400">›</span>
+            </button>
+          ))}
+          <button onClick={() => { setImages([]); setAllDone(false); setDoneEntryIds([]); }}
+            className="w-full py-3 text-sm text-gray-500 border border-dashed border-gray-300 rounded-xl">
+            继续输入
+          </button>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const showDouyinTags = inputMode === "video" || sourceType === "douyin";
+  const showSourceFields = sourceType !== "text" && sourceType !== "manual_note" && inputMode !== "video";
+  const doneCount = images.filter(i => i.status === "done").length;
 
   return (
     <AppLayout>
-      <div className="max-w-lg mx-auto space-y-4 animate-fade-in">
+      <div className="p-4 space-y-4 pb-32">
+
+        {/* Input mode tabs */}
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+          {[
+            { key: "image" as InputMode, label: "📷 图片" },
+            { key: "text" as InputMode, label: "✏️ 文字" },
+            { key: "video" as InputMode, label: "🎵 视频" },
+          ].map(({ key, label }) => (
+            <button key={key} onClick={() => {
+              setInputMode(key);
+              if (key === "image") setSourceType("screenshot");
+              if (key === "text") setSourceType("text");
+              if (key === "video") setSourceType("douyin");
+            }}
+              className={"flex-1 py-2 text-sm font-medium rounded-lg transition-all " + (inputMode === key ? "bg-white shadow text-gray-900" : "text-gray-500")}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Processing mode */}
         <div>
-          <h1 className="text-xl font-bold text-foreground">输入</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">低摩擦输入 → AI 识别分类 → 你一句话校正</p>
+          <p className="text-xs font-medium text-gray-500 mb-2">处理方式</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.entries(PROCESSING_MODE_CONFIG) as [ProcessingMode, typeof PROCESSING_MODE_CONFIG[ProcessingMode]][]).map(([key, cfg]) => (
+              <button key={key} onClick={() => setProcessingMode(key)}
+                className={"p-3 rounded-xl border-2 text-left transition-all " + (processingMode === key ? cfg.active : "border-gray-200 bg-white text-gray-500")}>
+                <div className="text-lg mb-0.5">{cfg.icon}</div>
+                <div className="text-sm font-semibold">{cfg.label}</div>
+                <div className="text-xs opacity-70 leading-tight mt-0.5">{cfg.desc}</div>
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Mode Toggle */}
-        <div className="bg-muted rounded-xl p-1 flex gap-1">
-          <button onClick={() => setMode("image")} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === "image" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
-            📷 图片/截图
-          </button>
-          <button onClick={() => setMode("text")} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === "text" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
-            ✍️ 文字
-          </button>
+        {/* Attention point */}
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1.5">
+            你为什么想存它？<span className="text-gray-400 font-normal ml-1">（可选）</span>
+          </label>
+          <textarea value={attentionPoint} onChange={e => setAttentionPoint(e.target.value)}
+            placeholder="例：我关注的是这个视频的开头表达，不是内容本身。"
+            rows={2}
+            className="w-full px-3 py-2 text-sm border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none bg-amber-50 placeholder-amber-300" />
         </div>
 
-        {/* Image mode */}
-        {mode === "image" && (
-          <>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleFilesChange(e.target.files)} className="hidden" />
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={(e) => handleFilesChange(e.target.files)} className="hidden" />
-
-            {images.length > 0 ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-2">
-                  {images.map((img) => (
-                    <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden border border-border bg-muted">
-                      <img src={img.preview} alt="" className="w-full h-full object-cover" />
-                      <div className={`absolute inset-0 flex items-center justify-center ${img.status === "done" ? "bg-green-500/20" : img.status === "error" ? "bg-red-500/20" : img.status !== "pending" ? "bg-black/30" : ""}`}>
-                        {img.status === "uploading" && <div className="bg-white/90 rounded-full p-1.5"><div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}
-                        {img.status === "analyzing" && <div className="bg-white/90 rounded-full p-1.5"><div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /></div>}
-                        {img.status === "done" && <div className="bg-white/90 rounded-full p-1.5"><span className="text-green-500 text-base">✓</span></div>}
-                        {img.status === "error" && <div className="bg-white/90 rounded-full p-1.5"><span className="text-red-500 text-base">✕</span></div>}
-                      </div>
-                      {img.status === "pending" && !isSubmitting && (
-                        <button onClick={() => setImages((prev) => prev.filter((i) => i.id !== img.id))} className="absolute top-1 right-1 bg-black/60 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">✕</button>
-                      )}
-                    </div>
-                  ))}
-                  {!isSubmitting && !allDone && (
-                    <button onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-primary/40 bg-muted/50 flex flex-col items-center justify-center gap-1 transition-all">
-                      <span className="text-2xl text-muted-foreground">+</span>
-                      <span className="text-[10px] text-muted-foreground">添加</span>
-                    </button>
-                  )}
-                </div>
-
-                {isSubmitting && totalCount > 1 && (
-                  <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
-                    <div className="flex justify-between mb-1.5">
-                      <span className="text-xs font-medium text-primary">分析中 {doneCount}/{totalCount}</span>
-                      <span className="text-xs text-muted-foreground">gpt-4o 看图 → o3 深度分析</span>
-                    </div>
-                    <div className="h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${(doneCount / totalCount) * 100}%` }} />
-                    </div>
-                  </div>
+        {/* Douyin quick tags */}
+        {showDouyinTags && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">快速标记关注点</p>
+            <div className="flex flex-wrap gap-2">
+              {DOUYIN_QUICK_TAGS.map(tag => (
+                <button key={tag} onClick={() => setSelectedDouyinTags(prev =>
+                  prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
                 )}
-
-                {allDone && doneCount > 1 && (
-                  <div className="bg-green-50 border border-green-100 rounded-xl p-3.5">
-                    <p className="text-sm font-semibold text-green-700 mb-2">✅ 全部分析完成</p>
-                    <div className="space-y-1.5">
-                      {images.filter((i) => i.status === "done" && i.entryId).map((img, idx) => (
-                        <button key={img.id} onClick={() => navigate(`/review/${img.entryId}`)} className="w-full flex items-center gap-2 p-2 bg-white rounded-lg border border-green-100 hover:border-green-300 transition-colors text-left">
-                          <img src={img.preview} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
-                          <span className="text-xs text-foreground font-medium">第 {idx + 1} 张 → 去校正</span>
-                          <span className="ml-auto text-green-500 text-sm">→</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-2xl border-2 border-dashed border-border hover:border-primary/40 transition-all" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
-                <div className="p-8 flex flex-col items-center gap-4">
-                  <span className="text-5xl">📷</span>
-                  <div className="text-center">
-                    <p className="font-medium text-foreground">选择图片来源</p>
-                    <p className="text-sm mt-1 text-muted-foreground">支持手写笔记、截图、便利贴，可多选</p>
-                  </div>
-                  <div className="flex gap-3 w-full">
-                    <button onClick={() => cameraInputRef.current?.click()} className="flex-1 flex flex-col items-center gap-2 py-4 bg-white rounded-xl border border-border hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-[0.97]">
-                      <span className="text-2xl">📷</span>
-                      <span className="text-xs font-medium text-foreground">拍照</span>
-                    </button>
-                    <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex flex-col items-center gap-2 py-4 bg-white rounded-xl border border-border hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-[0.97]">
-                      <span className="text-2xl">🖼️</span>
-                      <span className="text-xs font-medium text-foreground">从相册</span>
-                      <span className="text-[10px] text-muted-foreground">可多选</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Text mode */}
-        {mode === "text" && (
-          <div className="bg-white rounded-2xl border border-border p-4">
-            <textarea
-              value={textContent}
-              onChange={(e) => setTextContent(e.target.value)}
-              placeholder="输入任何内容：一个词、一句话、一个问题、一段感悟...
-
-AI 会自动判断它属于哪一类：
-Concept / Person / Case / Question / Insight
-Idea / Skill / Action / Model / Trigger / Positioning"
-              className="w-full h-52 text-sm text-foreground placeholder:text-muted-foreground/60 resize-none outline-none leading-relaxed"
-            />
-            <div className="flex justify-end mt-2">
-              <span className="text-xs text-muted-foreground">{textContent.length} 字</span>
+                  className={"px-3 py-1.5 text-xs rounded-full border transition-all " + (selectedDouyinTags.includes(tag) ? "bg-orange-100 border-orange-400 text-orange-700 font-medium" : "bg-white border-gray-200 text-gray-600")}>
+                  {tag}
+                </button>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Submit */}
-        {!allDone && (
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className={`w-full py-4 rounded-2xl font-semibold text-base transition-all ${isSubmitting ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 active:scale-[0.98]"}`}
-          >
-            {isSubmitting
-              ? `AI 分析中... (${doneCount}/${totalCount || 1})`
-              : mode === "image" && images.length > 1
-              ? `🤖 提交 ${images.length} 张图片`
-              : "🤖 提交 → AI 分析"}
-          </button>
+        {/* Source type (image/text mode) */}
+        {inputMode !== "video" && (
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">来源类型</p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {SOURCE_TYPES.map(({ key, label, icon }) => (
+                <button key={key} onClick={() => setSourceType(key as SourceType)}
+                  className={"flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-all " + (sourceType === key ? "bg-blue-100 border-blue-400 text-blue-700 font-medium" : "bg-white border-gray-200 text-gray-500")}>
+                  <span>{icon}</span><span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
-        <div className="bg-muted/50 rounded-xl p-3 text-xs text-muted-foreground">
-          <p className="font-medium mb-1">⚡ 处理流程</p>
-          <p>提交 → gpt-4o 识别内容 → o3 深度分析 → 你一句话校正 → 确认入库 → 自动推送 GitHub</p>
+        {/* Source name/URL */}
+        {showSourceFields && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">来源名称</label>
+              <input value={sourceName} onChange={e => setSourceName(e.target.value)}
+                placeholder="例：@某某账号"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">来源链接</label>
+              <input value={sourceUrl} onChange={e => setSourceUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+          </div>
+        )}
+
+        {/* Image input */}
+        {inputMode === "image" && (
+          <div className="space-y-3">
+            {images.length === 0 ? (
+              <div onDrop={handleDrop} onDragOver={e => e.preventDefault()}
+                className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all"
+                onClick={() => fileInputRef.current?.click()}>
+                <div className="text-4xl mb-2">📷</div>
+                <p className="text-sm font-medium text-gray-600">点击选择图片</p>
+                <p className="text-xs text-gray-400 mt-1">支持多选 · 手写笔记 · 截图</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  {images.map((img) => (
+                    <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100">
+                      <img src={img.preview} className="w-full h-full object-cover" alt="" />
+                      <div className={"absolute inset-0 flex items-center justify-center text-xs font-bold text-white " + (img.status === "done" ? "bg-green-500/70" : img.status === "error" ? "bg-red-500/70" : img.status === "analyzing" ? "bg-blue-500/70" : "bg-transparent")}>
+                        {img.status === "done" && "✓"}
+                        {img.status === "error" && "✗"}
+                        {img.status === "analyzing" && "分析中"}
+                      </div>
+                      {img.status === "pending" && (
+                        <button onClick={() => setImages(prev => prev.filter(i => i.id !== img.id))}
+                          className="absolute top-1 right-1 w-5 h-5 bg-black/50 text-white rounded-full text-xs flex items-center justify-center">×</button>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center text-2xl text-gray-400 hover:border-blue-400 transition-all">+</button>
+                </div>
+                {images.length > 1 && (
+                  <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                    <span>{doneCount}/{images.length} 完成</span>
+                    {isSubmitting && <span className="text-blue-500 animate-pulse ml-auto">处理中...</span>}
+                  </div>
+                )}
+              </div>
+            )}
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFilesChange(e.target.files)} />
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleFilesChange(e.target.files)} />
+            {images.length === 0 && (
+              <button onClick={() => cameraInputRef.current?.click()}
+                className="w-full py-3 flex items-center justify-center gap-2 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+                📸 直接拍照
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Text input */}
+        {inputMode === "text" && (
+          <textarea value={textContent} onChange={e => setTextContent(e.target.value)}
+            placeholder={"输入你想记录的内容...\n\n可以是：一个词、一句话、一段想法、一个问题、一个人名..."}
+            rows={8}
+            className="w-full px-4 py-3 text-sm border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
+        )}
+
+        {/* Video input */}
+        {inputMode === "video" && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">视频链接 *</label>
+              <input value={sourceUrl} onChange={e => setSourceUrl(e.target.value)}
+                placeholder="粘贴抖音/B站/YouTube 链接..."
+                className="w-full px-3 py-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">账号/作者</label>
+              <input value={sourceName} onChange={e => setSourceName(e.target.value)}
+                placeholder="例：@某某账号"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">我的转发备注</label>
+              <textarea value={textContent} onChange={e => setTextContent(e.target.value)}
+                placeholder="这个视频为什么吸引你？你想从中学到什么？"
+                rows={3}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
+            </div>
+          </div>
+        )}
+
+        {/* Submit button */}
+        <div className="fixed bottom-20 left-0 right-0 px-4 pb-2 bg-gradient-to-t from-gray-50 pt-4">
+          <button onClick={handleSubmit}
+            disabled={isSubmitting || (inputMode === "image" && images.length === 0) || (inputMode === "text" && !textContent.trim()) || (inputMode === "video" && !sourceUrl.trim())}
+            className={"w-full py-4 rounded-2xl text-white font-semibold text-base transition-all shadow-lg " + (isSubmitting ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:scale-98")}>
+            {isSubmitting
+              ? PROCESSING_MODE_CONFIG[processingMode].icon + " " + PROCESSING_MODE_CONFIG[processingMode].label + "中..."
+              : PROCESSING_MODE_CONFIG[processingMode].icon + " " + PROCESSING_MODE_CONFIG[processingMode].label}
+          </button>
         </div>
       </div>
     </AppLayout>

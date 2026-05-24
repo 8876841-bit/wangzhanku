@@ -25,28 +25,44 @@ interface NoteForSync {
   nextActionType?: string | null;
   nextAction?: string | null;
   clusterName?: string;
+  // New fields
+  processingMode?: string | null;
+  attentionPoint?: string | null;
+  sourceType?: string | null;
+  sourceName?: string | null;
+  sourceUrl?: string | null;
+  densityLevel?: string | null;
+  densityScore?: number | null;
+  densityReason?: string | null;
+  coreTheme?: string | null;
+  connectionInsight?: string | null;
 }
 
-// ── GitHub folder mapping (aligned with ai-brain-system repo structure) ──────
+// ── GitHub folder mapping (00-09 directory structure) ──────────────────────
+// Aligned with user's ai-brain-system repo structure
 const CATEGORY_TO_FOLDER: Record<EntryCategory, string> = {
-  Concept:     "01_Concepts",
-  Person:      "02_People",
-  Case:        "03_Cases",
-  Question:    "04_Questions",
-  Insight:     "05_Insights",
-  Idea:        "06_Ideas",
-  Skill:       "07_Skills",
-  Action:      "08_Actions",
-  Model:       "09_Models",
-  Trigger:     "01_Concepts",    // Triggers are concept-adjacent
-  Positioning: "05_Insights",    // Positioning is insight-adjacent
+  Concept:     "01-concepts",
+  Person:      "02-people",
+  Case:        "03-cases",
+  Question:    "04-questions",
+  Insight:     "05-insights",
+  Idea:        "06-ideas",
+  Skill:       "07-skills",
+  Action:      "08-actions",
+  Model:       "09-models",
+  Trigger:     "01-concepts",    // Triggers are concept-adjacent
+  Positioning: "05-insights",    // Positioning is insight-adjacent
 };
 
 export function noteToMarkdown(note: NoteForSync): string {
-  const folder = CATEGORY_TO_FOLDER[note.category] || "01_Concepts";
+  const folder = CATEGORY_TO_FOLDER[note.category] || "01-concepts";
   const tags = note.tags || [];
   const suggestions = note.researchSuggestions || [];
   const date = note.createdAt.toISOString().split("T")[0];
+
+  const densityStr = note.densityLevel
+    ? `${note.densityLevel}${note.densityScore != null ? ` (${note.densityScore}/10)` : ""}`
+    : "";
 
   let md = `---
 id: ${note.id}
@@ -54,13 +70,23 @@ category: ${note.category}
 folder: ${folder}
 tags: [${tags.map((t) => `"${t}"`).join(", ")}]
 created: ${date}
----
-
-# ${note.title || "未命名"}
-
-> **分类**：${CATEGORY_LABELS[note.category]}${tags.length > 0 ? `　**标签**：${tags.join(" · ")}` : ""}
-
 `;
+  if (note.processingMode) md += `processing_mode: ${note.processingMode}\n`;
+  if (note.sourceType) md += `source_type: ${note.sourceType}\n`;
+  if (note.sourceName) md += `source_name: ${note.sourceName}\n`;
+  if (note.sourceUrl) md += `source_url: ${note.sourceUrl}\n`;
+  if (densityStr) md += `density: ${densityStr}\n`;
+  md += `---\n\n`;
+
+  md += `# ${note.title || "未命名"}\n\n`;
+  md += `> **分类**：${CATEGORY_LABELS[note.category]}`;
+  if (tags.length > 0) md += `　**标签**：${tags.join(" · ")}`;
+  if (densityStr) md += `　**信息密度**：${densityStr}`;
+  md += `\n\n`;
+
+  if (note.attentionPoint) {
+    md += `## 为什么存它\n\n${note.attentionPoint}\n\n`;
+  }
 
   if (note.aiInterpretation) {
     md += `## AI 初次理解\n\n${note.aiInterpretation}\n\n`;
@@ -74,6 +100,14 @@ created: ${date}
     md += `## 最终理解\n\n${note.finalInterpretation}\n\n`;
   } else if (note.summary) {
     md += `## 核心提炼\n\n${note.summary}\n\n`;
+  }
+
+  if (note.coreTheme) {
+    md += `## 核心命题\n\n${note.coreTheme}\n\n`;
+  }
+
+  if (note.connectionInsight) {
+    md += `## 认知联系\n\n${note.connectionInsight}\n\n`;
   }
 
   if (note.rawText) {
@@ -95,6 +129,10 @@ created: ${date}
     md += `## 下一步\n\n**类型**：${note.nextActionType || ""}　**行动**：${note.nextAction}\n\n`;
   }
 
+  if (note.densityReason) {
+    md += `## 信息密度说明\n\n${note.densityReason}\n\n`;
+  }
+
   if (suggestions.length > 0) {
     md += `## 延伸研究\n\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`;
   }
@@ -104,13 +142,20 @@ created: ${date}
 }
 
 export function getNoteFilePath(note: NoteForSync): string {
-  const folder = CATEGORY_TO_FOLDER[note.category] || "01_Concepts";
+  const folder = CATEGORY_TO_FOLDER[note.category] || "01-concepts";
   const date = note.createdAt.toISOString().split("T")[0];
   const safeTitle = (note.title || `entry-${note.id}`)
-    .replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 50);
+    .replace(/[/\\:*?"<>|]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/[^\w\-\u4e00-\u9fff]/g, "")
+    .slice(0, 50);
 
   if (note.clusterName) {
-    const safeCluster = note.clusterName.replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 40);
+    const safeCluster = note.clusterName
+      .replace(/[/\\:*?"<>|]/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/[^\w\-\u4e00-\u9fff]/g, "")
+      .slice(0, 40);
     return `${folder}/${safeCluster}/${date}-${safeTitle}.md`;
   }
   return `${folder}/${date}-${safeTitle}.md`;
@@ -131,7 +176,7 @@ export async function syncModelToGithub(
   modelContent: string
 ): Promise<{ success: boolean; path: string; error?: string }> {
   const safeTitle = modelName.replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 50);
-  const filePath = `09_Models/${safeTitle}.md`;
+  const filePath = `09-models/${safeTitle}.md`;
   const result = await pushToGithub(config, filePath, modelContent, `🧠 认知模型: ${modelName}`);
   return { success: result.success, path: result.path, error: result.error };
 }
@@ -142,9 +187,20 @@ async function pushToGithub(
   content: string,
   commitMessage: string
 ): Promise<{ success: boolean; path: string; url: string; error?: string }> {
+  // Decode token if it looks encrypted (base64 encoded AES)
+  let token = config.githubToken;
+  if (token.startsWith("ENC:")) {
+    try {
+      const { decryptToken } = await import("./cryptoService");
+      token = decryptToken(token.slice(4));
+    } catch {
+      return { success: false, path: filePath, url: "", error: "Token 解密失败" };
+    }
+  }
+
   const apiBase = `https://api.github.com/repos/${config.repoOwner}/${config.repoName}/contents/${filePath}`;
   const headers = {
-    Authorization: `Bearer ${config.githubToken}`,
+    Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "Content-Type": "application/json",
@@ -178,10 +234,20 @@ async function pushToGithub(
 }
 
 export async function validateGithubConfig(config: GithubConfig): Promise<{ valid: boolean; error?: string }> {
+  let token = config.githubToken;
+  if (token.startsWith("ENC:")) {
+    try {
+      const { decryptToken } = await import("./cryptoService");
+      token = decryptToken(token.slice(4));
+    } catch {
+      return { valid: false, error: "Token 解密失败，请重新设置" };
+    }
+  }
+
   try {
     const res = await fetch(
       `https://api.github.com/repos/${config.repoOwner}/${config.repoName}`,
-      { headers: { Authorization: `Bearer ${config.githubToken}`, Accept: "application/vnd.github+json" } }
+      { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" } }
     );
     if (res.status === 401) return { valid: false, error: "GitHub Token 无效或已过期" };
     if (res.status === 404) return { valid: false, error: "仓库不存在或无访问权限" };

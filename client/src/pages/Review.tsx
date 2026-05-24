@@ -8,6 +8,12 @@ import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
 import { createAudioRecorder } from "@/lib/audioRecorder";
 
+const DENSITY_CONFIG = {
+  high:   { label: "高密度", color: "text-red-600 bg-red-50 border-red-200", bar: "bg-red-400", desc: "信息量大，值得深挖" },
+  medium: { label: "中密度", color: "text-yellow-600 bg-yellow-50 border-yellow-200", bar: "bg-yellow-400", desc: "有一定价值，可整理" },
+  low:    { label: "低密度", color: "text-gray-500 bg-gray-50 border-gray-200", bar: "bg-gray-300", desc: "信息量较少，快速处理" },
+};
+
 export default function Review() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
@@ -19,14 +25,13 @@ export default function Review() {
   const [isApplying, setIsApplying] = useState(false);
   const [textInstruction, setTextInstruction] = useState("");
   const [clusterName, setClusterName] = useState("");
-  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const recorderRef = useRef<ReturnType<typeof createAudioRecorder> | null>(null);
 
   const { data, isLoading, refetch } = trpc.entries.getById.useQuery(
     { id: entryId },
     { enabled: isAuthenticated && entryId > 0 }
   );
-
   const { data: clusters } = trpc.entries.listClusters.useQuery(undefined, { enabled: isAuthenticated });
 
   const transcribeMutation = trpc.entries.transcribeVoice.useMutation({
@@ -40,32 +45,31 @@ export default function Review() {
     onError: () => { toast.error("语音识别失败，请重试"); setIsProcessing(false); },
   });
 
-  const correctionMutation = trpc.entries.applyCorrection.useMutation({
-    onSuccess: () => { refetch(); setIsApplying(false); toast.success("已更新"); },
-    onError: (err) => { toast.error(`更新失败: ${err.message}`); setIsApplying(false); },
+  const correctionMutation = trpc.entries.correct.useMutation({
+    onSuccess: () => { refetch(); setIsApplying(false); setTextInstruction(""); toast.success("已更新"); },
+    onError: (err) => { toast.error("更新失败: " + err.message); setIsApplying(false); },
   });
 
   const confirmMutation = trpc.entries.confirm.useMutation({
     onSuccess: (result) => {
-      toast.success(result.githubSynced ? "✅ 已入库并同步 GitHub" : "✅ 已入库");
+      toast.success(result.githubSynced ? "已入库并同步 GitHub" : "已入库");
       navigate("/");
     },
-    onError: (err) => toast.error(`入库失败: ${err.message}`),
+    onError: (err) => toast.error("入库失败: " + err.message),
   });
 
-  const setStatusMutation = trpc.entries.setStatus.useMutation({
+  const updateStatusMutation = trpc.entries.updateStatus.useMutation({
     onSuccess: (_, vars) => {
-      const label = vars.status === "parked" ? "已暂存" : "已放弃";
-      toast.success(label);
+      const labels: Record<string, string> = { parked: "已暂存", discarded: "已放弃", needs_deepdive: "已标记深挖" };
+      toast.success(labels[vars.status] || "已更新");
       navigate("/");
     },
-    onError: (err) => toast.error(`操作失败: ${err.message}`),
+    onError: (err) => toast.error("操作失败: " + err.message),
   });
 
-  // Pre-fill cluster name from AI suggestion
   useEffect(() => {
-    if (data?.entry) {
-      const entry = data.entry as any;
+    if (data) {
+      const entry = data as any;
       try {
         const unpacked = JSON.parse(entry.noteItemsJson || "{}");
         if (unpacked.suggestedClusterName && !clusterName) {
@@ -78,10 +82,11 @@ export default function Review() {
   const startRecording = async () => {
     const recorder = createAudioRecorder(
       (result) => {
+        setIsRecording(false);
         setIsProcessing(true);
         transcribeMutation.mutate({ audioBase64: result.base64, mimeType: result.mimeType });
       },
-      (err) => { toast.error(err); setIsRecording(false); }
+      () => { setIsRecording(false); setIsProcessing(false); toast.error("录音失败"); }
     );
     recorderRef.current = recorder;
     await recorder.start();
@@ -89,310 +94,300 @@ export default function Review() {
   };
 
   const stopRecording = () => {
-    recorderRef.current?.stop();
-    setIsRecording(false);
+    if (recorderRef.current && isRecording) recorderRef.current.stop();
   };
 
   const handleTextSend = () => {
-    if (!textInstruction.trim()) return;
+    if (!textInstruction.trim() || isApplying) return;
     setIsApplying(true);
     correctionMutation.mutate({ entryId, instruction: textInstruction });
-    setTextInstruction("");
   };
 
   const handleConfirm = () => {
-    confirmMutation.mutate({
-      entryId,
-      clusterName: clusterName.trim() || undefined,
-      syncToGithub: true,
-    });
+    confirmMutation.mutate({ entryId, clusterName: clusterName || undefined });
   };
+
+  if (!isAuthenticated) return null;
 
   if (isLoading) {
     return (
       <AppLayout>
-        <div className="max-w-2xl mx-auto space-y-4 animate-pulse">
-          <div className="h-6 bg-muted rounded w-1/3" />
-          <div className="h-40 bg-muted rounded-2xl" />
+        <div className="flex items-center justify-center h-48">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-sm text-gray-500">AI 分析中...</p>
+          </div>
         </div>
       </AppLayout>
     );
   }
 
-  const entry = data?.entry as any;
-  if (!entry) return null;
+  if (!data) {
+    return (
+      <AppLayout>
+        <div className="p-4 text-center text-gray-500">
+          <p>条目不存在</p>
+          <button onClick={() => navigate("/")} className="mt-3 text-blue-500 text-sm">返回首页</button>
+        </div>
+      </AppLayout>
+    );
+  }
 
-  const cat = entry.category as EntryCategory;
-  const status = entry.status as EntryStatus;
+  const entry = data as any;
+  let unpacked: any = {};
+  try { unpacked = JSON.parse(entry.noteItemsJson || "{}"); } catch {}
+
+  const cat = (entry.category || "Idea") as EntryCategory;
+  const status = (entry.status || "pending_review") as EntryStatus;
   const tags = (entry.tags as string[]) || [];
-  const suggestions = (entry.researchSuggestions as string[]) || [];
+  const noteItems = unpacked.noteItems || [];
+  const coreTheme = entry.coreTheme || unpacked.coreTheme || "";
+  const connectionInsight = entry.connectionInsight || unpacked.connectionInsight || "";
+  const needsDeepDive = unpacked.needsDeepDive || entry.needsDeepDive;
+  const deepDiveReason = unpacked.deepDiveReason || "";
+  const nextActionType = unpacked.nextActionType || entry.nextActionType || "parked";
+  const nextAction = unpacked.nextAction || entry.nextAction || "";
+  const aiInterpretation = unpacked.aiInterpretation || entry.aiInterpretation || "";
+  const densityLevel = entry.densityLevel || unpacked.densityLevel || "medium";
+  const densityScore = entry.densityScore ?? unpacked.densityScore ?? 5;
+  const densityReason = entry.densityReason || unpacked.densityReason || "";
+  const researchSuggestions = (entry.researchSuggestions as string[]) || [];
+  const attentionPoint = entry.attentionPoint || "";
+  const sourceType = entry.sourceType || "";
+  const sourceName = entry.sourceName || "";
+  const processingMode = entry.processingMode || "organize";
 
-  let noteItems: any[] = [];
-  let coreTheme = "";
-  let connectionInsight = "";
-  let suggestedClusterName = "";
-  let needsDeepDive = false;
-  let deepDiveReason = "";
-  let nextActionType = "";
-  let nextAction = "";
-  let aiInterpretation = "";
-
-  try {
-    const unpacked = JSON.parse(entry.noteItemsJson || "{}");
-    noteItems = unpacked.noteItems || [];
-    coreTheme = unpacked.coreTheme || entry.coreTheme || "";
-    connectionInsight = unpacked.connectionInsight || entry.connectionInsight || "";
-    suggestedClusterName = unpacked.suggestedClusterName || "";
-    needsDeepDive = unpacked.needsDeepDive || false;
-    deepDiveReason = unpacked.deepDiveReason || "";
-    nextActionType = unpacked.nextActionType || entry.nextActionType || "";
-    nextAction = unpacked.nextAction || entry.nextAction || "";
-    aiInterpretation = unpacked.aiInterpretation || entry.aiInterpretation || "";
-  } catch {}
-
+  const densityCfg = DENSITY_CONFIG[densityLevel as keyof typeof DENSITY_CONFIG] || DENSITY_CONFIG.medium;
   const isWorking = isRecording || isProcessing || isApplying;
+  const modeLabels: Record<string, string> = {
+    recognize_only: "只识别", organize: "识别整理", archive: "分类入库", deepdive: "深挖",
+  };
 
   return (
     <AppLayout>
-      <div className="max-w-2xl mx-auto space-y-4 animate-fade-in pb-6">
-        {/* Header */}
+      <div className="max-w-2xl mx-auto space-y-3 p-4 pb-40">
+
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-foreground">校正</h1>
-            <p className="text-xs text-muted-foreground">一句话告诉 AI 哪里不对，满意后确认入库</p>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">{CATEGORY_ICONS[cat]}</span>
+            <div>
+              <span className={"text-xs px-2 py-0.5 rounded-full border font-medium " + CATEGORY_COLORS[cat]}>
+                {CATEGORY_LABELS[cat]}
+              </span>
+              {processingMode && processingMode !== "organize" && (
+                <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                  {modeLabels[processingMode] || processingMode}
+                </span>
+              )}
+            </div>
           </div>
-          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[status]}`}>
+          <span className={"text-xs px-2.5 py-1 rounded-full font-medium " + STATUS_COLORS[status]}>
             {STATUS_LABELS[status]}
           </span>
         </div>
 
-        {/* Deep dive alert */}
+        <h1 className="text-lg font-bold text-gray-900 leading-snug">{entry.title || "未命名"}</h1>
+
+        {tags.length > 0 && (
+          <div className="flex gap-1 flex-wrap">
+            {tags.map((t: string) => (
+              <span key={t} className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{"#" + t}</span>
+            ))}
+          </div>
+        )}
+
+        <div className={"flex items-center gap-3 px-3 py-2.5 rounded-xl border " + densityCfg.color}>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-semibold">{densityCfg.label}</span>
+              <span className="text-xs opacity-70">{densityCfg.desc}</span>
+            </div>
+            <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
+              <div className={"h-full rounded-full transition-all " + densityCfg.bar}
+                style={{ width: ((densityScore / 10) * 100) + "%" }} />
+            </div>
+          </div>
+          <span className="text-sm font-bold opacity-80">{densityScore}/10</span>
+        </div>
+
         {needsDeepDive && (
           <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 flex items-start gap-2">
             <span className="text-purple-500 text-lg flex-shrink-0">🔭</span>
             <div>
               <p className="text-xs font-semibold text-purple-700">AI 标记：值得深挖</p>
-              <p className="text-xs text-purple-600 mt-0.5">{deepDiveReason}</p>
+              {deepDiveReason && <p className="text-xs text-purple-600 mt-0.5">{deepDiveReason}</p>}
             </div>
           </div>
         )}
 
-        {/* Entry card */}
-        <div className="bg-white rounded-2xl border border-border overflow-hidden">
-          <div className="p-4 border-b border-border">
-            <div className="flex items-start gap-3">
-              <span className="text-2xl">{CATEGORY_ICONS[cat]}</span>
-              <div className="flex-1 min-w-0">
-                <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${CATEGORY_COLORS[cat]}`}>
-                  {CATEGORY_LABELS[cat]}
-                </span>
-                <h2 className="text-base font-bold text-foreground mt-1.5 leading-snug">{entry.title || "未命名"}</h2>
-                {tags.length > 0 && (
-                  <div className="flex gap-1 mt-2 flex-wrap">
-                    {tags.map((t: string) => <span key={t} className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">#{t}</span>)}
-                  </div>
-                )}
-              </div>
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          {attentionPoint && (
+            <div className="px-4 py-3 bg-amber-50 border-b border-amber-100">
+              <p className="text-xs font-semibold text-amber-600 mb-0.5">你为什么存它</p>
+              <p className="text-sm text-amber-800">{attentionPoint}</p>
             </div>
-          </div>
-
+          )}
           {entry.imageUrl && (
-            <div className="border-b border-border">
-              <img src={entry.imageUrl} alt="原始输入" className="w-full max-h-56 object-contain bg-gray-50" />
+            <div className="border-b border-gray-100">
+              <img src={entry.imageUrl} alt="原始输入" className="w-full max-h-48 object-contain bg-gray-50" />
             </div>
           )}
-
-          {entry.rawText && (
-            <div className="p-4 border-b border-border">
-              <p className="text-xs font-semibold text-muted-foreground mb-1.5">原始内容</p>
-              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{entry.rawText}</p>
-            </div>
-          )}
-
-          {/* AI interpretation (first pass) */}
           {aiInterpretation && (
-            <div className="p-4 border-t border-border bg-amber-50/30">
-              <p className="text-xs font-semibold text-amber-600 mb-1.5">🤖 AI 初次理解</p>
-              <p className="text-sm text-foreground leading-relaxed">{aiInterpretation}</p>
-              <p className="text-xs text-amber-600 mt-1.5">如果理解有偏差，在底部输入框说出来</p>
+            <div className="px-4 py-3 bg-blue-50/50 border-b border-blue-100">
+              <p className="text-xs font-semibold text-blue-600 mb-1">AI 理解</p>
+              <p className="text-sm text-gray-800 leading-relaxed">{aiInterpretation}</p>
+              <p className="text-xs text-blue-500 mt-1.5">如果理解有偏差，在底部输入框说出来</p>
             </div>
           )}
-
           {entry.summary && (
-            <div className="p-4 bg-blue-50/30">
-              <p className="text-xs font-semibold text-blue-600 mb-1.5">🤖 AI 提炼</p>
-              <p className="text-sm text-foreground leading-relaxed">{entry.summary}</p>
+            <div className="px-4 py-3">
+              <p className="text-xs font-semibold text-gray-500 mb-1">提炼</p>
+              <p className="text-sm text-gray-800 leading-relaxed">{entry.summary}</p>
             </div>
           )}
-        </div>
-
-        {/* Core theme + connection */}
-        {(coreTheme || connectionInsight) && (
-          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl border border-purple-100 p-4 space-y-2">
-            {coreTheme && <div><p className="text-xs font-semibold text-purple-600 mb-1">🎯 核心命题</p><p className="text-sm font-medium text-foreground">{coreTheme}</p></div>}
-            {connectionInsight && <div><p className="text-xs font-semibold text-indigo-600 mb-1">🔮 认知联系</p><p className="text-sm text-foreground leading-relaxed">{connectionInsight}</p></div>}
-          </div>
-        )}
-
-        {/* Note items */}
-        {noteItems.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-foreground">逐条分析 ({noteItems.length})</p>
-            {noteItems.map((item: any, i: number) => (
-              <div key={i} className="bg-white rounded-xl border border-border p-3.5">
-                <p className="text-xs text-muted-foreground mb-1">{item.type}</p>
-                <p className="text-sm font-semibold text-foreground mb-2">{item.keyword}</p>
-                <p className="text-sm text-foreground leading-relaxed">{item.deepAnswer}</p>
-                {item.actionable?.length > 0 && (
-                  <div className="mt-2 bg-green-50 rounded-lg p-2">
-                    <p className="text-xs font-semibold text-green-700 mb-1">⚡ 行动</p>
-                    {item.actionable.map((a: string, j: number) => <p key={j} className="text-xs text-green-800">→ {a}</p>)}
-                  </div>
-                )}
+          {coreTheme && (
+            <div className="px-4 py-3 bg-purple-50/40 border-t border-purple-100">
+              <p className="text-xs font-semibold text-purple-600 mb-1">核心命题</p>
+              <p className="text-sm font-medium text-gray-800">{coreTheme}</p>
+            </div>
+          )}
+          {nextAction && (
+            <div className="px-4 py-3 bg-green-50/40 border-t border-green-100">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-base">{NEXT_ACTION_ICONS[nextActionType] || "⚡"}</span>
+                <p className="text-xs font-semibold text-green-700">下一步</p>
+                <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">
+                  {NEXT_ACTION_LABELS[nextActionType] || nextActionType}
+                </span>
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* AI answer */}
-        {entry.aiAnswer && !entry.aiAnswer.includes("__ITEMS__") && (
-          <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4">
-            <p className="text-xs font-semibold text-primary mb-2">🤖 AI 回答</p>
-            <p className="text-sm text-foreground leading-relaxed">{entry.aiAnswer}</p>
-          </div>
-        )}
-
-        {/* Research suggestions */}
-        {suggestions.length > 0 && (
-          <div className="bg-white rounded-2xl border border-border p-4">
-            <p className="text-sm font-semibold text-foreground mb-2">🔭 延伸研究</p>
-            {suggestions.map((s: string, i: number) => (
-              <p key={i} className="text-xs text-muted-foreground py-1 border-b border-border/50 last:border-0">{i + 1}. {s}</p>
-            ))}
-          </div>
-        )}
-
-        {/* Cluster assignment */}
-        <div className="bg-white rounded-2xl border border-border p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-foreground">🧩 归入知识簇</p>
-            {suggestedClusterName && <span className="text-xs text-muted-foreground">AI 建议：{suggestedClusterName}</span>}
-          </div>
-          <input
-            type="text"
-            value={clusterName}
-            onChange={(e) => setClusterName(e.target.value)}
-            placeholder="输入知识簇名称（积累 3 条可升级为认知模型），留空则不归类"
-            className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm outline-none focus:border-primary/50 transition-all"
-          />
-          {clusters && clusters.length > 0 && (
-            <div className="flex gap-1.5 mt-2 flex-wrap">
-              {clusters.slice(0, 5).map((c) => (
-                <button key={c.id} onClick={() => setClusterName(c.name)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-all ${clusterName === c.name ? "bg-primary text-white border-primary" : "bg-muted text-muted-foreground border-border hover:border-primary/40"}`}>
-                  {c.name} ({c.entryCount})
-                </button>
-              ))}
+              <p className="text-sm text-gray-800 leading-relaxed">{nextAction}</p>
             </div>
           )}
         </div>
 
-        {/* Next action */}
-        {nextAction && (
-          <div className="bg-white rounded-2xl border border-border p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-base">{NEXT_ACTION_ICONS[nextActionType] || "⚡"}</span>
-              <p className="text-sm font-semibold text-foreground">下一步动作</p>
-              <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{NEXT_ACTION_LABELS[nextActionType] || nextActionType}</span>
-            </div>
-            <p className="text-sm text-foreground leading-relaxed">{nextAction}</p>
+        <div>
+          <label className="text-xs font-medium text-gray-500 block mb-1.5">归入知识簇（可选）</label>
+          <input value={clusterName} onChange={e => setClusterName(e.target.value)}
+            placeholder="例：产品思维、表达技巧..." list="cluster-suggestions"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          <datalist id="cluster-suggestions">
+            {clusters?.map((c: any) => <option key={c.id} value={c.name} />)}
+          </datalist>
+        </div>
+
+        <button onClick={() => setShowDetails(!showDetails)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-100 transition-all">
+          <span className="font-medium">{showDetails ? "收起详情" : "展开详情"}</span>
+          <span className="text-gray-400">{showDetails ? "▲" : "▼"}</span>
+        </button>
+
+        {showDetails && (
+          <div className="space-y-3">
+            {entry.rawText && (
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <p className="text-xs font-semibold text-gray-400 mb-2">原始内容</p>
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{entry.rawText}</p>
+              </div>
+            )}
+            {connectionInsight && (
+              <div className="bg-indigo-50 rounded-xl border border-indigo-100 p-4">
+                <p className="text-xs font-semibold text-indigo-600 mb-1">认知联系</p>
+                <p className="text-sm text-gray-800 leading-relaxed">{connectionInsight}</p>
+              </div>
+            )}
+            {densityReason && (
+              <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+                <p className="text-xs font-semibold text-gray-500 mb-1">信息密度说明</p>
+                <p className="text-sm text-gray-700">{densityReason}</p>
+              </div>
+            )}
+            {noteItems.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-gray-700">逐条分析 ({noteItems.length})</p>
+                {noteItems.map((item: any, i: number) => (
+                  <div key={i} className="bg-white rounded-xl border border-gray-200 p-3.5">
+                    <p className="text-xs text-gray-400 mb-1">{item.type}</p>
+                    <p className="text-sm font-semibold text-gray-800 mb-2">{item.keyword}</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{item.deepAnswer}</p>
+                    {item.actionable?.length > 0 && (
+                      <div className="mt-2 bg-green-50 rounded-lg p-2">
+                        <p className="text-xs font-semibold text-green-700 mb-1">行动</p>
+                        {item.actionable.map((a: string, j: number) => (
+                          <p key={j} className="text-xs text-green-800">{"→ " + a}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {researchSuggestions.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <p className="text-xs font-semibold text-gray-500 mb-2">延伸研究方向</p>
+                <div className="space-y-1">
+                  {researchSuggestions.map((s: string, i: number) => (
+                    <p key={i} className="text-sm text-gray-700">{(i + 1) + ". " + s}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(sourceType || sourceName) && (
+              <div className="bg-gray-50 rounded-xl border border-gray-200 p-3">
+                <p className="text-xs font-semibold text-gray-400 mb-1">来源信息</p>
+                <div className="flex gap-3 text-xs text-gray-600">
+                  {sourceType && <span>{"类型：" + sourceType}</span>}
+                  {sourceName && <span>{"来源：" + sourceName}</span>}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Bottom padding so content isn't hidden behind fixed bar */}
         <div className="h-36" />
       </div>
 
-      {/* ── Fixed bottom bar: correction input + confirm ── */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border shadow-lg"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 4rem)" }}
-      >
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 shadow-lg"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 4rem)" }}>
         <div className="max-w-2xl mx-auto px-4 pt-3 pb-2 space-y-2">
-          {/* Status indicator */}
           {isWorking && (
             <div className="flex items-center gap-2 px-1">
-              <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
-              <p className="text-xs text-primary font-medium">
-                {isRecording ? "🔴 录音中，松开停止..." : isProcessing ? "语音识别中..." : "AI 更新中，请稍候..."}
+              <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <p className="text-xs text-blue-600 font-medium">
+                {isRecording ? "录音中，松开停止..." : isProcessing ? "语音识别中..." : "AI 更新中..."}
               </p>
             </div>
           )}
-
-          {/* Correction row */}
           <div className="flex items-center gap-2">
-            {/* Mic button */}
-            <button
-              onPointerDown={startRecording}
-              onPointerUp={stopRecording}
-              onPointerLeave={stopRecording}
+            <button onPointerDown={startRecording} onPointerUp={stopRecording} onPointerLeave={stopRecording}
               disabled={isProcessing || isApplying}
-              className={`w-11 h-11 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all select-none flex-shrink-0 ${
-                isRecording ? "bg-red-500 text-white scale-110 shadow-md" :
-                isProcessing || isApplying ? "bg-muted text-muted-foreground cursor-not-allowed" :
-                "bg-primary/10 text-primary hover:bg-primary/20 active:scale-95"
-              }`}
-            >
+              className={"w-11 h-11 rounded-full flex items-center justify-center transition-all select-none flex-shrink-0 " + (isRecording ? "bg-red-500 text-white scale-110 shadow-md" : isProcessing || isApplying ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95")}>
               {isRecording ? <span className="text-base">⏹</span> :
-               isProcessing || isApplying ? <div className="w-4 h-4 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" /> :
+               isProcessing || isApplying ? <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" /> :
                <span className="text-base">🎤</span>}
             </button>
-
-            {/* Text input */}
-            <input
-              type="text"
-              value={textInstruction}
-              onChange={(e) => setTextInstruction(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleTextSend()}
-              placeholder="说出或打字修改意见..."
-              disabled={isWorking}
-              className="flex-1 px-3 py-2.5 bg-muted/60 border border-border rounded-xl text-sm outline-none focus:border-primary/50 focus:bg-white transition-all disabled:opacity-50"
-            />
-
-            {/* Send button */}
-            <button
-              onClick={handleTextSend}
-              disabled={!textInstruction.trim() || isWorking}
-              className="px-3 py-2.5 bg-muted text-foreground rounded-xl text-xs font-medium disabled:opacity-40 hover:bg-muted/70 transition-colors flex-shrink-0"
-            >
+            <input type="text" value={textInstruction} onChange={e => setTextInstruction(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleTextSend()}
+              placeholder="一句话告诉 AI 哪里不对..." disabled={isWorking}
+              className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-blue-400 focus:bg-white transition-all disabled:opacity-50" />
+            <button onClick={handleTextSend} disabled={!textInstruction.trim() || isWorking}
+              className="px-3 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-xs font-medium disabled:opacity-40 hover:bg-gray-200 transition-colors flex-shrink-0">
               发送
             </button>
           </div>
-
-          {/* Action row: confirm + park + discard */}
           <div className="flex gap-2">
-            <button
-              onClick={handleConfirm}
-              disabled={confirmMutation.isPending || isWorking}
-              className="flex-1 py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-all shadow-md shadow-primary/20 active:scale-[0.98] disabled:opacity-50"
-            >
-              {confirmMutation.isPending ? "入库中..." : `✅ 入库${clusterName ? ` · ${clusterName}` : ""}`}
+            <button onClick={handleConfirm} disabled={confirmMutation.isPending || isWorking}
+              className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-all shadow-md active:scale-98 disabled:opacity-50">
+              {confirmMutation.isPending ? "入库中..." : "确认入库" + (clusterName ? " · " + clusterName : "")}
             </button>
-            <button
-              onClick={() => setStatusMutation.mutate({ entryId, status: "parked" })}
-              disabled={setStatusMutation.isPending || isWorking}
-              className="px-3 py-3 rounded-xl bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 transition-colors disabled:opacity-50 flex-shrink-0"
-              title="暂存，以后再看"
-            >
-              ⏸️暂存
+            <button onClick={() => updateStatusMutation.mutate({ entryId, status: "parked" })}
+              disabled={updateStatusMutation.isPending || isWorking}
+              className="px-3 py-3 rounded-xl bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 transition-colors disabled:opacity-50 flex-shrink-0">
+              暂存
             </button>
-            <button
-              onClick={() => setStatusMutation.mutate({ entryId, status: "discarded" })}
-              disabled={setStatusMutation.isPending || isWorking}
-              className="px-3 py-3 rounded-xl bg-red-50 text-red-400 text-xs font-medium hover:bg-red-100 transition-colors disabled:opacity-50 flex-shrink-0"
-              title="放弃，不入库"
-            >
-              🗑️放弃
+            <button onClick={() => updateStatusMutation.mutate({ entryId, status: "discarded" })}
+              disabled={updateStatusMutation.isPending || isWorking}
+              className="px-3 py-3 rounded-xl bg-red-50 text-red-400 text-xs font-medium hover:bg-red-100 transition-colors disabled:opacity-50 flex-shrink-0">
+              放弃
             </button>
           </div>
         </div>
