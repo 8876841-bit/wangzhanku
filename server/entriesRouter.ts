@@ -8,7 +8,6 @@ import {
   generateModel, analyzeRelations, analyzeFusion,
   unpackAnalysis,
 } from "./aiService";
-import { storagePut, storageGetSignedUrl } from "./storage";
 import { validateGithubConfig } from "./githubService";
 import { encryptToken, decryptToken } from "./cryptoService";
 import type { AIAnalysisResult, EntryCategory } from "./aiService";
@@ -78,11 +77,10 @@ export const entriesRouter = router({
       let imageUrl: string | null = null;
       let aiImageUrl: string | null = null;
       if (input.imageBase64) {
-        const buffer = Buffer.from(input.imageBase64, "base64");
-        const ext = input.imageType.split("/")[1] || "jpg";
-        const stored = await storagePut("entries/images/entry-" + Date.now() + "." + ext, buffer, input.imageType);
-        imageUrl = stored.url;
-        aiImageUrl = await storageGetSignedUrl(stored.key);
+        // Railway deployments do not have Manus' built-in storage service.
+        // Send a data URL directly to the vision model so image OCR works
+        // with only OPENAI_API_KEY configured.
+        aiImageUrl = `data:${input.imageType};base64,${input.imageBase64}`;
       }
       const existingEntries = await db.select({ title: entries.title })
         .from(entries).where(eq(entries.userId, ctx.user.id))

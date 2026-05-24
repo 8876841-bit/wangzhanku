@@ -16,6 +16,7 @@ interface ImageItem {
   type: string;
   status: "pending" | "uploading" | "analyzing" | "done" | "error";
   entryId?: number;
+  errorMessage?: string;
 }
 
 const PROCESSING_MODE_CONFIG: Record<ProcessingMode, { label: string; desc: string; icon: string; active: string }> = {
@@ -155,8 +156,10 @@ export default function Input() {
           });
           setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: "done", entryId: result.entryId } : i));
           entryIds.push(result.entryId);
-        } catch {
-          setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: "error" } : i));
+        } catch (err: any) {
+          const message = err?.message || "图片识别失败";
+          setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: "error", errorMessage: message } : i));
+          toast.error(message);
         }
       }
 
@@ -341,6 +344,11 @@ export default function Input() {
                   <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
                     <span>{doneCount}/{images.length} 完成</span>
                     {isSubmitting && <span className="text-blue-500 animate-pulse ml-auto">处理中...</span>}
+                  </div>
+                )}
+                {images.some(i => i.status === "error" && i.errorMessage) && (
+                  <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                    {images.find(i => i.status === "error" && i.errorMessage)?.errorMessage}
                   </div>
                 )}
               </div>
