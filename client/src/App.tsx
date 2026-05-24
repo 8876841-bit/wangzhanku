@@ -11,6 +11,7 @@ import Review from "./pages/Review";
 import Entry from "./pages/Entry";
 import Clusters from "./pages/Clusters";
 import Settings from "./pages/Settings";
+import Login from "./pages/Login";
 import { PWAUpdatePrompt } from "./components/PWAUpdatePrompt";
 import { PWAInstallPrompt } from "./components/PWAInstallPrompt";
 
@@ -18,6 +19,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
       <Route path="/input" component={Input} />
       <Route path="/library" component={Library} />
       <Route path="/review/:id" component={Review} />
