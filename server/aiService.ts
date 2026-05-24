@@ -107,14 +107,18 @@ async function extractFromImage(imageUrl: string): Promise<string> {
     messages: [{
       role: "user",
       content: [
-        { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
         {
           type: "text",
-          text: `请对这张图片做两件事：
+          text: `你是 OCR 转写工具。请只处理用户上传图片中可见的普通文字和布局信息。
 
-1. 完整提取所有文字（包括潦草手写字、数字、符号、箭头说明），按空间位置关系还原，不遗漏任何内容。
+允许处理的内容：网页截图、聊天截图、笔记、代码、表格、手写字、按钮文字、标题、数字和符号。
+不要识别真实人物身份，不要推断隐私信息；如果图片里有头像或人物，只忽略人物身份，继续转写其他可见文字。
 
-2. 描述图片的视觉结构（几个区域、如何组织）。
+请完成两件事：
+1. 完整提取所有可见文字，按空间位置关系还原，尽量不遗漏。
+2. 简短描述图片的视觉结构，例如几个区域、如何组织。
+
+如果没有可识别文字，也要明确写“未识别到文字”，不要道歉，不要拒绝。
 
 格式：
 ===RAW_TEXT===
@@ -123,11 +127,16 @@ async function extractFromImage(imageUrl: string): Promise<string> {
 ===VISUAL_STRUCTURE===
 （布局描述）`,
         },
+        { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
       ],
     }],
     max_tokens: 3000,
   });
-  return response.choices[0]?.message?.content || "";
+  const extracted = response.choices[0]?.message?.content?.trim() || "";
+  if (/抱歉|无法帮助|不能帮助|can't assist|cannot assist|I can.?t help/i.test(extracted)) {
+    throw new Error("图片识别被模型拒绝，请换一张更清晰的截图或稍后重试");
+  }
+  return extracted;
 }
 
 // ── Prompt builders by processing mode ──────────────────────────────────────
