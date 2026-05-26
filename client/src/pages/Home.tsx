@@ -93,7 +93,7 @@ export default function Home() {
             </button>
           </Link>
 
-          <Link href="/review/pending">
+          <Link href="/library?status=pending_review">
             <button className={"w-full rounded-2xl bg-white border p-4 flex items-center gap-3 hover:shadow-md transition-all text-left active:scale-98 " + (needsAction > 0 ? "border-amber-300" : "border-gray-200")}>
               <div className={"w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 " + (needsAction > 0 ? "bg-amber-50" : "bg-gray-50")}>⏳</div>
               <div className="flex-1 min-w-0">
